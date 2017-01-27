@@ -331,6 +331,10 @@ uintptr_t trap_from_machine_mode(uintptr_t dummy, uintptr_t* regs)
       return machine_illegal_instruction(mcause, regs, mepc);
     case CAUSE_MACHINE_ECALL:
       return mcall_trap(mcause, regs);
+    case CAUSE_MEMORY_DUE: //MWG: non-standard
+      //TODO: currently this trap shouldn't have any effect on program
+      write_csr(mepc, read_csr(mepc)+4);      
+      return 0;
     default:
       bad_trap();
   }

@@ -694,6 +694,7 @@
 #define CAUSE_SUPERVISOR_ECALL 0x9
 #define CAUSE_HYPERVISOR_ECALL 0xa
 #define CAUSE_MACHINE_ECALL 0xb
+#define CAUSE_MEMORY_DUE 0xf //MWG: this is non-standard
 #endif
 #ifdef DECLARE_INSN
 DECLARE_INSN(beq, MATCH_BEQ, MASK_BEQ)
@@ -1007,4 +1008,5 @@ DECLARE_CAUSE("user_ecall", CAUSE_USER_ECALL)
 DECLARE_CAUSE("supervisor_ecall", CAUSE_SUPERVISOR_ECALL)
 DECLARE_CAUSE("hypervisor_ecall", CAUSE_HYPERVISOR_ECALL)
 DECLARE_CAUSE("machine_ecall", CAUSE_MACHINE_ECALL)
+DECLARE_CAUSE("memory_due", CAUSE_MEMORY_DUE) //MWG: this is non-standard
 #endif
