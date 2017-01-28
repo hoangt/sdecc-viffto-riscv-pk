@@ -98,9 +98,17 @@ void handle_trap(trapframe_t* tf)
     [CAUSE_MISALIGNED_STORE] = handle_misaligned_store,
     [CAUSE_FAULT_LOAD] = handle_fault_load,
     [CAUSE_FAULT_STORE] = handle_fault_store,
+    [CAUSE_MEMORY_DUE] = handle_memory_due, //MWG: this is non-standard
   };
 
   kassert(tf->cause < ARRAY_SIZE(trap_handlers) && trap_handlers[tf->cause]);
 
   trap_handlers[tf->cause](tf);
+}
+
+//MWG
+void handle_memory_due(trapframe_t* tf) {
+  //TODO FIXME: how to hook trap handler into user-defined function in a totally separate program?
+  //asm volatile("j 0x10164");
+  panic("handle_memory_due() in PK called. This is a placeholder panic().");
 }

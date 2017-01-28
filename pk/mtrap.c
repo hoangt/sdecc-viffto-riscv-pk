@@ -332,7 +332,7 @@ uintptr_t trap_from_machine_mode(uintptr_t dummy, uintptr_t* regs)
     case CAUSE_MACHINE_ECALL:
       return mcall_trap(mcause, regs);
     case CAUSE_MEMORY_DUE: //MWG: non-standard
-      //TODO: currently this trap shouldn't have any effect on program
+      //MWG FIXME TODO: If the memory DUE trap is handled in machine mode (because program was in machine mode, we ignore its effects and pretend like it didn't happen.
       write_csr(mepc, read_csr(mepc)+4);      
       return 0;
     default:
