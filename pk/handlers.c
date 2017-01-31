@@ -5,7 +5,7 @@
 #include "syscall.h"
 #include "vm.h"
 
-user_trap_handler user_memory_due_trap_handler = &default_memory_due_trap_handler; //MWG
+trap_handler user_memory_due_trap_handler = &default_memory_due_trap_handler; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -88,7 +88,8 @@ void handle_trap(trapframe_t* tf)
   if ((intptr_t)tf->cause < 0)
     return handle_interrupt(tf);
 
-  typedef void (*trap_handler)(trapframe_t*);
+  //MWG moved the following to pk.h
+  //typedef void (*trap_handler)(trapframe_t*);
 
   const static trap_handler trap_handlers[] = {
     [CAUSE_MISALIGNED_FETCH] = handle_misaligned_fetch,
@@ -109,7 +110,7 @@ void handle_trap(trapframe_t* tf)
 }
 
 //MWG
-void sys_register_user_memory_due_trap_handler(user_trap_handler fptr) {
+void sys_register_user_memory_due_trap_handler(trap_handler fptr) {
    user_memory_due_trap_handler = fptr;
 }
 

@@ -49,7 +49,8 @@
   STORE  t3,35*REGBYTES(x2)
 
   # get faulting insn, if it wasn't a fetch-related trap
-  li x5,-1
+  #li x5,-1 # MWG commented out
+  ld x5,0(t1) # MWG: The above commented line appears to have been a placeholder, it was incorrect. This line works (at least for RV64).
   STORE x5,36*REGBYTES(x2)
 1:
   .endm
