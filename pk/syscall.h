@@ -48,6 +48,7 @@
 #define SYS_setrlimit 164
 #define SYS_getrusage 165
 #define SYS_clock_gettime 113
+#define SYS_register_user_memory_due_trap_handler 447 //MWG hack
 
 #define OLD_SYSCALL_THRESHOLD 1024
 #define SYS_open 1024

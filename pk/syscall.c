@@ -470,6 +470,7 @@ long do_syscall(long a0, long a1, long a2, long a3, long a4, long a5, unsigned l
     [SYS_getrusage] = sys_stub_nosys,
     [SYS_getrlimit] = sys_stub_nosys,
     [SYS_setrlimit] = sys_stub_nosys,
+    [SYS_register_user_memory_due_trap_handler] = sys_register_user_memory_due_trap_handler, //MWG
   };
 
   const static void* old_syscall_table[] = {

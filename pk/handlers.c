@@ -5,6 +5,8 @@
 #include "syscall.h"
 #include "vm.h"
 
+user_trap_handler user_memory_due_trap_handler = &default_memory_due_trap_handler; //MWG
+
 static void handle_illegal_instruction(trapframe_t* tf)
 {
   tf->insn = *(uint16_t*)tf->epc;
@@ -107,8 +109,16 @@ void handle_trap(trapframe_t* tf)
 }
 
 //MWG
+void sys_register_user_memory_due_trap_handler(user_trap_handler fptr) {
+   user_memory_due_trap_handler = fptr;
+}
+
+//MWG
+void default_memory_due_trap_handler(trapframe_t* tf) {
+  panic("Default memory DUE trap handler: panic()");
+}
+
+//MWG
 void handle_memory_due(trapframe_t* tf) {
-  //TODO FIXME: how to hook trap handler into user-defined function in a totally separate program?
-  //asm volatile("j 0x10164");
-  panic("handle_memory_due() in PK called. This is a placeholder panic().");
+  user_memory_due_trap_handler(tf);
 }
