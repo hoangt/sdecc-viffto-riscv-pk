@@ -73,8 +73,9 @@ void run_loaded_program(struct mainvars*);
 void boot_other_hart();
 
 typedef void (*trap_handler)(trapframe_t*); //MWG
-void default_memory_due_trap_handler(); //MWG
-void sys_register_user_memory_due_trap_handler(trap_handler fptr); //MWG
+typedef int (*user_trap_handler)(trapframe_t*); //MWG
+int default_memory_due_trap_handler(trapframe_t*); //MWG
+void sys_register_user_memory_due_trap_handler(user_trap_handler fptr); //MWG
 
 typedef struct {
   int elf64;

@@ -5,7 +5,7 @@
 #include "syscall.h"
 #include "vm.h"
 
-trap_handler user_memory_due_trap_handler = &default_memory_due_trap_handler; //MWG
+user_trap_handler user_memory_due_trap_handler = NULL; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -110,16 +110,17 @@ void handle_trap(trapframe_t* tf)
 }
 
 //MWG
-void sys_register_user_memory_due_trap_handler(trap_handler fptr) {
+void sys_register_user_memory_due_trap_handler(user_trap_handler fptr) {
    user_memory_due_trap_handler = fptr;
 }
 
 //MWG
-void default_memory_due_trap_handler(trapframe_t* tf) {
+int default_memory_due_trap_handler(trapframe_t* tf) {
   panic("Default memory DUE trap handler: panic()");
 }
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
-  user_memory_due_trap_handler(tf);
+  if (user_memory_due_trap_handler == NULL || user_memory_due_trap_handler(tf))
+      default_memory_due_trap_handler(tf); //backup
 }
