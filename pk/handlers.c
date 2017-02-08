@@ -5,7 +5,7 @@
 #include "syscall.h"
 #include "vm.h"
 
-user_trap_handler user_memory_due_trap_handler = NULL; //MWG
+user_due_trap_handler user_memory_due_trap_handler = NULL; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -110,17 +110,39 @@ void handle_trap(trapframe_t* tf)
 }
 
 //MWG
-void sys_register_user_memory_due_trap_handler(user_trap_handler fptr) {
+void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr) {
    user_memory_due_trap_handler = fptr;
 }
 
 //MWG
 int default_memory_due_trap_handler(trapframe_t* tf) {
-  panic("Default memory DUE trap handler: panic()");
+  panic("Default pk memory DUE trap handler: panic()");
 }
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
-  if (user_memory_due_trap_handler == NULL || user_memory_due_trap_handler(tf))
-      default_memory_due_trap_handler(tf); //backup
+  if (!user_memory_due_trap_handler)
+      default_memory_due_trap_handler(tf); //default pk-defined handler
+  else {
+      //due_candidates_t candidates;
+      //due_cacheline_t cacheline;
+      
+      //if (!getDUECandidateMessages(&candidates) && !getDUECacheline(&cacheline)) {
+      if (!getDUECandidateMessages(NULL) && !getDUECacheline(NULL)) {
+       //   user_memory_due_trap_handler(tf, &candidates, &cacheline);
+          user_memory_due_trap_handler(tf, NULL, NULL);
+      } else
+          default_memory_due_trap_handler(tf);
+  }
+}
+
+//MWG
+int getDUECandidateMessages(due_candidates_t* candidates) {
+    return 0; 
+}
+
+//MWG
+int getDUECacheline(due_cacheline_t* cacheline) {
+    //TODO
+    return 0; 
 }

@@ -72,10 +72,31 @@ void boot_loader(struct mainvars*);
 void run_loaded_program(struct mainvars*);
 void boot_other_hart();
 
+//MWG
+typedef struct {
+    char byte[8];
+} word_t;
+
+//MWG
+typedef struct {
+    word_t* candidate_messages;
+    int num_candidate_messages;
+} due_candidates_t;
+
+//MWG
+typedef struct {
+    word_t* words;
+    int linesz;
+    int blockpos;
+} due_cacheline_t;
+
 typedef void (*trap_handler)(trapframe_t*); //MWG
-typedef int (*user_trap_handler)(trapframe_t*); //MWG
+typedef int (*user_due_trap_handler)(trapframe_t*, due_candidates_t*, due_cacheline_t*); //MWG
 int default_memory_due_trap_handler(trapframe_t*); //MWG
-void sys_register_user_memory_due_trap_handler(user_trap_handler fptr); //MWG
+void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
+
+int getDUECandidateMessages(due_candidates_t* candidates); //MWG
+int getDUECacheline(due_cacheline_t* cacheline); //MWG
 
 typedef struct {
   int elf64;
