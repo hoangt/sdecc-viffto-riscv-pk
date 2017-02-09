@@ -4,8 +4,12 @@
 #include "config.h"
 #include "syscall.h"
 #include "vm.h"
+#include "encoding.h" //MWG
 
-user_due_trap_handler user_memory_due_trap_handler = NULL; //MWG
+user_due_trap_handler g_user_memory_due_trap_handler = NULL; //MWG
+due_candidates_t g_candidates; //MWG
+due_cacheline_t g_cacheline; //MWG
+
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -111,7 +115,7 @@ void handle_trap(trapframe_t* tf)
 
 //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr) {
-   user_memory_due_trap_handler = fptr;
+   g_user_memory_due_trap_handler = fptr;
 }
 
 //MWG
@@ -121,16 +125,11 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
-  if (!user_memory_due_trap_handler)
+  if (!g_user_memory_due_trap_handler)
       default_memory_due_trap_handler(tf); //default pk-defined handler
   else {
-      //due_candidates_t candidates;
-      //due_cacheline_t cacheline;
-      
-      //if (!getDUECandidateMessages(&candidates) && !getDUECacheline(&cacheline)) {
-      if (!getDUECandidateMessages(NULL) && !getDUECacheline(NULL)) {
-       //   user_memory_due_trap_handler(tf, &candidates, &cacheline);
-          user_memory_due_trap_handler(tf, NULL, NULL);
+      if (!getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
+          g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline);
       } else
           default_memory_due_trap_handler(tf);
   }
@@ -138,6 +137,9 @@ void handle_memory_due(trapframe_t* tf) {
 
 //MWG
 int getDUECandidateMessages(due_candidates_t* candidates) {
+    //FIXME: for some reason the defined values in encoding.h don't work here. Very strange. Have to hard-code it manually.
+    //uint64_t msg = set_csr(0x4,0); //CSR_PENALTY_BOX_MSG
+    uint64_t msg = read_csr(0x4); //CSR_PENALTY_BOX_MSG. Also, this function is defined here but not in Priv 1.7 specs.. weird.
     return 0; 
 }
 

@@ -89,7 +89,7 @@ typedef struct {
     int linesz;
     int blockpos;
 } due_cacheline_t;
-
+      
 typedef void (*trap_handler)(trapframe_t*); //MWG
 typedef int (*user_due_trap_handler)(trapframe_t*, due_candidates_t*, due_cacheline_t*); //MWG
 int default_memory_due_trap_handler(trapframe_t*); //MWG
