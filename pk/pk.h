@@ -79,14 +79,13 @@ typedef struct {
 
 //MWG
 typedef struct {
-    word_t* candidate_messages;
+    word_t candidate_messages[32];
     int num_candidate_messages;
 } due_candidates_t;
 
 //MWG
 typedef struct {
-    word_t* words;
-    int linesz;
+    word_t words[8];
     int blockpos;
 } due_cacheline_t;
       
@@ -96,6 +95,7 @@ int default_memory_due_trap_handler(trapframe_t*); //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
 
 int getDUECandidateMessages(due_candidates_t* candidates); //MWG
+void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates); //MWG
 int getDUECacheline(due_cacheline_t* cacheline); //MWG
 
 typedef struct {

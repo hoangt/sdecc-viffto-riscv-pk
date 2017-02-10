@@ -4,12 +4,11 @@
 #include "config.h"
 #include "syscall.h"
 #include "vm.h"
-#include "encoding.h" //MWG
 
 user_due_trap_handler g_user_memory_due_trap_handler = NULL; //MWG
 due_candidates_t g_candidates; //MWG
 due_cacheline_t g_cacheline; //MWG
-
+char g_candidates_cstring[2048]; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -128,6 +127,7 @@ void handle_memory_due(trapframe_t* tf) {
   if (!g_user_memory_due_trap_handler)
       default_memory_due_trap_handler(tf); //default pk-defined handler
   else {
+
       if (!getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
           g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline);
       } else
@@ -137,14 +137,59 @@ void handle_memory_due(trapframe_t* tf) {
 
 //MWG
 int getDUECandidateMessages(due_candidates_t* candidates) {
-    //FIXME: for some reason the defined values in encoding.h don't work here. Very strange. Have to hard-code it manually.
-    //uint64_t msg = set_csr(0x4,0); //CSR_PENALTY_BOX_MSG
-    uint64_t msg = read_csr(0x4); //CSR_PENALTY_BOX_MSG. Also, this function is defined here but not in Priv 1.7 specs.. weird.
+    asm volatile("custom2 0,%0,0,0;"
+                 : 
+                 : "r" (&g_candidates_cstring));
+
+    //Parse returned value
+    parse_sdecc_candidate_output(g_candidates_cstring, 2048, candidates);
+    
     return 0; 
 }
 
 //MWG
 int getDUECacheline(due_cacheline_t* cacheline) {
-    //TODO
+    if (!cacheline)
+        return 1;
+
+    uint64_t cl[8];
+    uint64_t blockpos;
+    cl[0] = read_csr(0x5); //CSR_PENALTY_BOX_CACHELINE_BLK0
+    cl[1] = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_BLK1
+    cl[2] = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLK2
+    cl[3] = read_csr(0x8); //CSR_PENALTY_BOX_CACHELINE_BLK3
+    cl[4] = read_csr(0x9); //CSR_PENALTY_BOX_CACHELINE_BLK4
+    cl[5] = read_csr(0xa); //CSR_PENALTY_BOX_CACHELINE_BLK5
+    cl[6] = read_csr(0xb); //CSR_PENALTY_BOX_CACHELINE_BLK6
+    cl[7] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK7
+    blockpos = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
+
+    memcpy(cacheline->words, cl, 64);
+    cacheline->blockpos = blockpos;
+
     return 0; 
+}
+
+//MWG
+void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates) {
+      int done = 0;
+      int num_candidates = 0;
+      int k = 0;
+      // Output is expected to be simply a bunch of rows, each with k-bit binary messages, e.g. '001010100101001...001010'
+      do {
+          //Assume k == 64
+          word_t w;
+          for (size_t i = 0; i < 8; i++) {
+              w.byte[i] = 0;
+              for (size_t j = 0; j < 8; j++) {
+                  w.byte[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
+              }
+          }
+          k++; //Skip newline
+          candidates->candidate_messages[num_candidates++] = w;
+          candidates->num_candidate_messages++;
+        
+          if (script_stdout[k] == '\0' || k >= len || num_candidates >= 32)
+              done = 1;
+      } while(!done);
 }
