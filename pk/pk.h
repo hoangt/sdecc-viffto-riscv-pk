@@ -96,7 +96,9 @@ void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MW
 
 int getDUECandidateMessages(due_candidates_t* candidates); //MWG
 void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates); //MWG
+word_t parse_sdecc_data_recovery_output(const char* script_stdout, size_t len); //MWG
 int getDUECacheline(due_cacheline_t* cacheline); //MWG
+word_t do_data_recovery(); //MWG
 
 typedef struct {
   int elf64;

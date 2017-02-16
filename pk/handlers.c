@@ -9,6 +9,7 @@ user_due_trap_handler g_user_memory_due_trap_handler = NULL; //MWG
 due_candidates_t g_candidates; //MWG
 due_cacheline_t g_cacheline; //MWG
 char g_candidates_cstring[2048]; //MWG
+char g_recovery_cstring[2048]; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -127,9 +128,21 @@ void handle_memory_due(trapframe_t* tf) {
   if (!g_user_memory_due_trap_handler)
       default_memory_due_trap_handler(tf); //default pk-defined handler
   else {
-
       if (!getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
-          g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline);
+          int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline); 
+          word_t recovered_value;
+          switch (retval) {
+            case 0: //User handler indicated success
+                break;
+            case 1: //User handler wants us to recover
+                recovered_value = do_data_recovery(); //FIXME: inst recovery?
+                void* ptr = (void*)(tf->badvaddr);
+                memcpy(ptr, &recovered_value, 8); //Put the recovered data back in memory
+                break;
+            default: //User handler wants us to use default safe handler
+                default_memory_due_trap_handler(tf);
+                break;
+          }
       } else
           default_memory_due_trap_handler(tf);
   }
@@ -137,6 +150,7 @@ void handle_memory_due(trapframe_t* tf) {
 
 //MWG
 int getDUECandidateMessages(due_candidates_t* candidates) {
+    //Magical Spike hook to compute candidates, so we don't have to re-implement in C
     asm volatile("custom2 0,%0,0,0;"
                  : 
                  : "r" (&g_candidates_cstring));
@@ -152,8 +166,8 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     if (!cacheline)
         return 1;
 
-    uint64_t cl[8];
-    uint64_t blockpos;
+    unsigned long cl[8];
+    unsigned long blockpos;
     cl[0] = read_csr(0x5); //CSR_PENALTY_BOX_CACHELINE_BLK0
     cl[1] = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_BLK1
     cl[2] = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLK2
@@ -192,4 +206,29 @@ void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_can
           if (script_stdout[k] == '\0' || k >= len || num_candidates >= 32)
               done = 1;
       } while(!done);
+}
+
+//MWG
+word_t parse_sdecc_recovery_output(const char* script_stdout) {
+      //Output is expected to be simply a bunch of bits. Assume 64
+      word_t w;
+      int k = 0;
+      for (size_t i = 0; i < 8; i++) {
+          w.byte[i] = 0;
+          for (size_t j = 0; j < 8; j++) {
+              w.byte[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
+          }
+      }
+
+      return w;
+}
+
+//MWG
+word_t do_data_recovery() {
+    //Magical Spike hook to recover, so we don't have to re-implement in C
+    asm volatile("custom3 0,%0,0,0;"
+                 : 
+                 : "r" (&g_recovery_cstring));
+
+    return parse_sdecc_recovery_output(g_recovery_cstring);
 }
