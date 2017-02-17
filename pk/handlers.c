@@ -120,6 +120,13 @@ void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr) {
 
 //MWG
 int default_memory_due_trap_handler(trapframe_t* tf) {
+  if (tf) {
+      //Ignore candidates, simply writeback 0 word
+      word_t recovered_value;
+      for (size_t i = 0; i < 32; i++)
+          recovered_value.bytes[i] = 0; //Just make sure
+      memcpy((void*)(tf->badvaddr), &recovered_value, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+  }
   panic("Default pk memory DUE trap handler: panic()");
 }
 
@@ -129,15 +136,16 @@ void handle_memory_due(trapframe_t* tf) {
       default_memory_due_trap_handler(tf); //default pk-defined handler
   else {
       if (!getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
-          int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline); 
           word_t recovered_value;
+          int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); 
+          void* ptr = (void*)(tf->badvaddr);
           switch (retval) {
             case 0: //User handler indicated success
+                memcpy(ptr, &recovered_value, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
                 break;
             case 1: //User handler wants us to recover
                 recovered_value = do_data_recovery(); //FIXME: inst recovery?
-                void* ptr = (void*)(tf->badvaddr);
-                memcpy(ptr, &recovered_value, 8); //Put the recovered data back in memory
+                memcpy(ptr, &recovered_value, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
                 break;
             default: //User handler wants us to use default safe handler
                 default_memory_due_trap_handler(tf);

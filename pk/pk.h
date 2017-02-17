@@ -92,7 +92,7 @@ typedef struct {
 } due_cacheline_t;
       
 typedef void (*trap_handler)(trapframe_t*); //MWG
-typedef int (*user_due_trap_handler)(trapframe_t*, due_candidates_t*, due_cacheline_t*); //MWG
+typedef int (*user_due_trap_handler)(trapframe_t*, due_candidates_t*, due_cacheline_t*, word_t*); //MWG
 int default_memory_due_trap_handler(trapframe_t*); //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
 
