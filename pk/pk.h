@@ -74,19 +74,21 @@ void boot_other_hart();
 
 //MWG
 typedef struct {
-    char byte[8];
+    char bytes[32]; //Support UP TO 256-bit words
+    size_t size;
 } word_t;
 
 //MWG
 typedef struct {
-    word_t candidate_messages[32];
-    int num_candidate_messages;
+    word_t candidate_messages[32]; //Support UP TO 32 candidate messages
+    size_t size;
 } due_candidates_t;
 
 //MWG
 typedef struct {
-    word_t words[8];
-    int blockpos;
+    word_t words[32]; //Support UP TO 32 words in a cacheline
+    size_t blockpos;
+    size_t size;
 } due_cacheline_t;
       
 typedef void (*trap_handler)(trapframe_t*); //MWG

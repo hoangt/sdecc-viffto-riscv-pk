@@ -167,7 +167,7 @@ int getDUECacheline(due_cacheline_t* cacheline) {
         return 1;
 
     unsigned long cl[8];
-    unsigned long blockpos;
+    size_t blockpos;
     cl[0] = read_csr(0x5); //CSR_PENALTY_BOX_CACHELINE_BLK0
     cl[1] = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_BLK1
     cl[2] = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLK2
@@ -180,6 +180,7 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 
     memcpy(cacheline->words, cl, 64);
     cacheline->blockpos = blockpos;
+    cacheline->size = 64;
 
     return 0; 
 }
@@ -187,23 +188,23 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 //MWG
 void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates) {
       int done = 0;
-      int num_candidates = 0;
+      int count = 0;
       int k = 0;
       // Output is expected to be simply a bunch of rows, each with k-bit binary messages, e.g. '001010100101001...001010'
       do {
           //Assume k == 64
           word_t w;
           for (size_t i = 0; i < 8; i++) {
-              w.byte[i] = 0;
+              w.bytes[i] = 0;
               for (size_t j = 0; j < 8; j++) {
-                  w.byte[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
+                  w.bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
               }
           }
           k++; //Skip newline
-          candidates->candidate_messages[num_candidates++] = w;
-          candidates->num_candidate_messages++;
+          candidates->candidate_messages[count++] = w;
+          candidates->size++;
         
-          if (script_stdout[k] == '\0' || k >= len || num_candidates >= 32)
+          if (script_stdout[k] == '\0' || k >= len || count >= 32)
               done = 1;
       } while(!done);
 }
@@ -214,9 +215,9 @@ word_t parse_sdecc_recovery_output(const char* script_stdout) {
       word_t w;
       int k = 0;
       for (size_t i = 0; i < 8; i++) {
-          w.byte[i] = 0;
+          w.bytes[i] = 0;
           for (size_t j = 0; j < 8; j++) {
-              w.byte[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
+              w.bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
           }
       }
 
