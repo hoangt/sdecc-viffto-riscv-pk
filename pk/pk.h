@@ -101,6 +101,9 @@ void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_can
 word_t parse_sdecc_data_recovery_output(const char* script_stdout, size_t len); //MWG
 int getDUECacheline(due_cacheline_t* cacheline); //MWG
 word_t do_data_recovery(); //MWG
+void copy_word(word_t* dest, word_t* src); //MWG
+void copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
+void copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
 
 typedef struct {
   int elf64;

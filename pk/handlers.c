@@ -125,35 +125,31 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
       word_t recovered_value;
       for (size_t i = 0; i < 32; i++)
           recovered_value.bytes[i] = 0; //Just make sure
-      memcpy((void*)(tf->badvaddr), &recovered_value, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+      memcpy((void*)(tf->badvaddr), recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
   }
   panic("Default pk memory DUE trap handler: panic()");
 }
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
-  if (!g_user_memory_due_trap_handler)
-      default_memory_due_trap_handler(tf); //default pk-defined handler
-  else {
-      if (!getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
-          word_t recovered_value;
-          int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); 
-          void* ptr = (void*)(tf->badvaddr);
-          switch (retval) {
-            case 0: //User handler indicated success
-                memcpy(ptr, &recovered_value, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
-                break;
-            case 1: //User handler wants us to recover
-                recovered_value = do_data_recovery(); //FIXME: inst recovery?
-                memcpy(ptr, &recovered_value, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
-                break;
-            default: //User handler wants us to use default safe handler
-                default_memory_due_trap_handler(tf);
-                break;
-          }
-      } else
-          default_memory_due_trap_handler(tf);
+  if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
+       word_t recovered_value;
+       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); 
+       void* ptr = (void*)(tf->badvaddr);
+       switch (retval) {
+         case 0: //User handler indicated success
+             memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             return;
+         case 1: //User handler wants us to recover
+             recovered_value = do_data_recovery(); //FIXME: inst recovery?
+             memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             return;
+         default: //User handler wants us to use default safe handler
+             default_memory_due_trap_handler(tf);
+             return;
+       }
   }
+  default_memory_due_trap_handler(tf);
 }
 
 //MWG
@@ -186,9 +182,10 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     cl[7] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK7
     blockpos = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
 
-    memcpy(cacheline->words, cl, 64);
+    for (int i = 0; i < 8; i++)
+        memcpy(cacheline->words[i].bytes, cl+i, 8);
     cacheline->blockpos = blockpos;
-    cacheline->size = 64;
+    cacheline->size = 8;
 
     return 0; 
 }
@@ -240,4 +237,32 @@ word_t do_data_recovery() {
                  : "r" (&g_recovery_cstring));
 
     return parse_sdecc_recovery_output(g_recovery_cstring);
+}
+
+//MWG
+void copy_word(word_t* dest, word_t* src) {
+   if (dest && src) {
+       for (int i = 0; i < 32; i++)
+           dest->bytes[i] = src->bytes[i];
+       dest->size = src->size;
+   }
+}
+
+//MWG
+void copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src) {
+    if (dest && src) {
+        for (int i = 0; i < 32; i++)
+            copy_word(dest->words+i, src->words+i);
+        dest->size = src->size;
+        dest->blockpos = src->blockpos;
+    }
+}
+
+//MWG
+void copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
+    if (dest && src) {
+        for (int i = 0; i < 32; i++)
+            copy_word(dest->candidate_messages+i, src->candidate_messages+i);
+        dest->size = src->size;
+    }
 }
