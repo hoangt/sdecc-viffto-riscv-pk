@@ -104,6 +104,7 @@ word_t do_data_recovery(); //MWG
 void copy_word(word_t* dest, word_t* src); //MWG
 void copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
 void copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
+void copy_trapframe(trapframe_t* dest, trapframe_t* src); //MWG
 
 typedef struct {
   int elf64;

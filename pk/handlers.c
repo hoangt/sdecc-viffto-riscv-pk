@@ -134,14 +134,12 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
        word_t recovered_value;
-       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); 
+       recovered_value = do_data_recovery(); //Pre-select recovery value. FIXME: inst recovery?
+       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); //May clobber recovered_value
        void* ptr = (void*)(tf->badvaddr);
        switch (retval) {
          case 0: //User handler indicated success
-             memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
-             return;
-         case 1: //User handler wants us to recover
-             recovered_value = do_data_recovery(); //FIXME: inst recovery?
+         case 1: //User handler wants us to use the pre-selected recovery value
              memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              return;
          default: //User handler wants us to use default safe handler
@@ -181,7 +179,7 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     cl[6] = read_csr(0xb); //CSR_PENALTY_BOX_CACHELINE_BLK6
     cl[7] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK7
     blockpos = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
-
+    
     for (int i = 0; i < 8; i++)
         memcpy(cacheline->words[i].bytes, cl+i, 8);
     cacheline->blockpos = blockpos;
@@ -265,4 +263,17 @@ void copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
             copy_word(dest->candidate_messages+i, src->candidate_messages+i);
         dest->size = src->size;
     }
+}
+
+//MWG
+void copy_trapframe(trapframe_t* dest, trapframe_t* src) {
+   if (dest && src) {
+       for (int i = 0; i < 32; i++)
+           dest->gpr[i] = src->gpr[i];
+       dest->status = src->status;
+       dest->epc = src->epc;
+       dest->badvaddr = src->badvaddr;
+       dest->cause = src->cause;
+       dest->insn = src->insn;
+   }
 }
