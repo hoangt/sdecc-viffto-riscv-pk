@@ -133,12 +133,15 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
 //MWG
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
-       word_t recovered_value;
+       word_t recovered_value, user_recovered_value;
        recovered_value = do_data_recovery(); //Pre-select recovery value. FIXME: inst recovery?
-       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); //May clobber recovered_value
+       copy_word(&user_recovered_value, &recovered_value);
+       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &user_recovered_value); //May clobber recovered_value
        void* ptr = (void*)(tf->badvaddr);
        switch (retval) {
          case 0: //User handler indicated success
+             memcpy(ptr, user_recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             return;
          case 1: //User handler wants us to use the pre-selected recovery value
              memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              return;
@@ -180,8 +183,10 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     cl[7] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK7
     blockpos = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
     
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 8; i++) {
         memcpy(cacheline->words[i].bytes, cl+i, 8);
+        cacheline->words[i].size = 8;
+    }
     cacheline->blockpos = blockpos;
     cacheline->size = 8;
 
@@ -190,26 +195,24 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 
 //MWG
 void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates) {
-      int done = 0;
       int count = 0;
       int k = 0;
-      // Output is expected to be simply a bunch of rows, each with k-bit binary messages, e.g. '001010100101001...001010'
+      size_t wordsize = 8;
+      word_t w;
+      w.size = 8;
+      // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
       do {
-          //Assume k == 64
-          word_t w;
-          for (size_t i = 0; i < 8; i++) {
+          for (size_t i = 0; i < wordsize; i++) {
               w.bytes[i] = 0;
               for (size_t j = 0; j < 8; j++) {
                   w.bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
               }
           }
           k++; //Skip newline
-          candidates->candidate_messages[count++] = w;
-          candidates->size++;
-        
-          if (script_stdout[k] == '\0' || k >= len || count >= 32)
-              done = 1;
-      } while(!done);
+          copy_word(candidates->candidate_messages+count, &w);
+          count++;
+      } while(script_stdout[k] != '\0' && count < 32 && k < len);
+      candidates->size = count;
 }
 
 //MWG
