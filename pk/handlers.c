@@ -134,7 +134,7 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
        word_t recovered_value, user_recovered_value;
-       recovered_value = do_data_recovery(); //Pre-select recovery value. FIXME: inst recovery?
+       do_data_recovery(&recovered_value); //Pre-select recovery value. FIXME: inst recovery?
        copy_word(&user_recovered_value, &recovered_value);
        int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &user_recovered_value); //May clobber recovered_value
        void* ptr = (void*)(tf->badvaddr);
@@ -171,8 +171,14 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     if (!cacheline)
         return 1;
 
-    unsigned long cl[8];
+    //FIXME: how to pass in as runtime options to pk? These MUST match what is used by Spike!
+    unsigned wordsize = 8;
+    unsigned words_per_block = 8;
+
+    unsigned long cl[words_per_block];
     size_t blockpos;
+
+    //FIXME: cacheline and word sizes scalability
     cl[0] = read_csr(0x5); //CSR_PENALTY_BOX_CACHELINE_BLK0
     cl[1] = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_BLK1
     cl[2] = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLK2
@@ -183,12 +189,12 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     cl[7] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK7
     blockpos = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
     
-    for (int i = 0; i < 8; i++) {
-        memcpy(cacheline->words[i].bytes, cl+i, 8);
-        cacheline->words[i].size = 8;
+    for (int i = 0; i < words_per_block; i++) {
+        memcpy(cacheline->words[i].bytes, cl+i, wordsize);
+        cacheline->words[i].size = wordsize;
     }
     cacheline->blockpos = blockpos;
-    cacheline->size = 8;
+    cacheline->size = words_per_block;
 
     return 0; 
 }
@@ -197,9 +203,9 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates) {
       int count = 0;
       int k = 0;
-      size_t wordsize = 8;
+      size_t wordsize = 8; //FIXME: how to make this a run-time option? This MUST match spike!
       word_t w;
-      w.size = 8;
+      w.size = wordsize;
       // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
       do {
           for (size_t i = 0; i < wordsize; i++) {
@@ -216,28 +222,30 @@ void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_can
 }
 
 //MWG
-word_t parse_sdecc_recovery_output(const char* script_stdout) {
-      //Output is expected to be simply a bunch of bits. Assume 64
-      word_t w;
+void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w) {
       int k = 0;
-      for (size_t i = 0; i < 8; i++) {
-          w.bytes[i] = 0;
-          for (size_t j = 0; j < 8; j++) {
-              w.bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
+      size_t wordsize = 8;
+      // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
+      do {
+          for (size_t i = 0; i < wordsize; i++) {
+              w->bytes[i] = 0;
+              for (size_t j = 0; j < 8; j++) {
+                  w->bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
+              }
           }
-      }
-
-      return w;
+          k++; //Skip newline
+      } while(script_stdout[k] != '\0' && k < 8*wordsize);
+      w->size = wordsize;
 }
 
 //MWG
-word_t do_data_recovery() {
+void do_data_recovery(word_t* w) {
     //Magical Spike hook to recover, so we don't have to re-implement in C
     asm volatile("custom3 0,%0,0,0;"
                  : 
                  : "r" (&g_recovery_cstring));
 
-    return parse_sdecc_recovery_output(g_recovery_cstring);
+    parse_sdecc_data_recovery_output(g_recovery_cstring, w);
 }
 
 //MWG
