@@ -172,23 +172,32 @@ int getDUECacheline(due_cacheline_t* cacheline) {
         return 1;
 
     //FIXME: how to pass in as runtime options to pk? These MUST match what is used by Spike!
-    unsigned wordsize = 8;
-    unsigned words_per_block = 8;
+    unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
+    unsigned long cacheline_size = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_SIZE
+    unsigned long blockpos = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
 
+    unsigned long words_per_block = cacheline_size / wordsize;
     unsigned long cl[words_per_block];
-    size_t blockpos;
 
     //FIXME: cacheline and word sizes scalability
-    cl[0] = read_csr(0x5); //CSR_PENALTY_BOX_CACHELINE_BLK0
-    cl[1] = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_BLK1
-    cl[2] = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLK2
-    cl[3] = read_csr(0x8); //CSR_PENALTY_BOX_CACHELINE_BLK3
-    cl[4] = read_csr(0x9); //CSR_PENALTY_BOX_CACHELINE_BLK4
-    cl[5] = read_csr(0xa); //CSR_PENALTY_BOX_CACHELINE_BLK5
-    cl[6] = read_csr(0xb); //CSR_PENALTY_BOX_CACHELINE_BLK6
-    cl[7] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK7
-    blockpos = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
-    
+    //This ugliness is due to need for constants in the read_csr() macro. Cannot dynamically compute an argument.
+    if (cacheline_size >= 1)
+        cl[0] = read_csr(0x8); //CSR_PENALTY_BOX_CACHELINE_BLK0
+    if (cacheline_size >= 2)
+        cl[1] = read_csr(0x9); //CSR_PENALTY_BOX_CACHELINE_BLK1
+    if (cacheline_size >= 3)
+        cl[2] = read_csr(0xa); //CSR_PENALTY_BOX_CACHELINE_BLK2
+    if (cacheline_size >= 4)
+        cl[3] = read_csr(0xb); //CSR_PENALTY_BOX_CACHELINE_BLK3
+    if (cacheline_size >= 5)
+        cl[4] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK4
+    if (cacheline_size >= 6)
+        cl[5] = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLK5
+    if (cacheline_size >= 7)
+        cl[6] = read_csr(0xe); //CSR_PENALTY_BOX_CACHELINE_BLK6
+    if (cacheline_size >= 8)
+        cl[7] = read_csr(0xf); //CSR_PENALTY_BOX_CACHELINE_BLK7
+
     for (int i = 0; i < words_per_block; i++) {
         memcpy(cacheline->words[i].bytes, cl+i, wordsize);
         cacheline->words[i].size = wordsize;
