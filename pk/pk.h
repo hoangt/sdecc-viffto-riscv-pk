@@ -97,7 +97,7 @@ int default_memory_due_trap_handler(trapframe_t*); //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
 
 int getDUECandidateMessages(due_candidates_t* candidates); //MWG
-void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates); //MWG
+void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidates_t* candidates); //MWG
 void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w); //MWG
 int getDUECacheline(due_cacheline_t* cacheline); //MWG
 void do_data_recovery(word_t* w); //MWG

@@ -200,7 +200,7 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 }
 
 //MWG
-void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_candidates_t* candidates) {
+void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidates_t* candidates) {
       int count = 0;
       int k = 0;
       size_t wordsize = 8; //FIXME: how to make this a run-time option? This MUST match spike!
@@ -214,11 +214,12 @@ void parse_sdecc_candidate_output(const char* script_stdout, size_t len, due_can
                   w.bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
               }
           }
-          k++; //Skip newline
+          script_stdout[k++] = ','; //Change newline to comma in buffer so we can reuse it for data recovery insn
           copy_word(candidates->candidate_messages+count, &w);
           count++;
       } while(script_stdout[k] != '\0' && count < 32 && k < len);
       candidates->size = count;
+      script_stdout[k-1] = '\0';
 }
 
 //MWG
@@ -241,9 +242,9 @@ void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w) {
 //MWG
 void do_data_recovery(word_t* w) {
     //Magical Spike hook to recover, so we don't have to re-implement in C
-    asm volatile("custom3 0,%0,0,0;"
+    asm volatile("custom3 0,%0,%1,0;"
                  : 
-                 : "r" (&g_recovery_cstring));
+                 : "r" (&g_recovery_cstring), "r" (&g_candidates_cstring));
 
     parse_sdecc_data_recovery_output(g_recovery_cstring, w);
 }
