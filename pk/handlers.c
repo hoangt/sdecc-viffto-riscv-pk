@@ -9,7 +9,7 @@ user_due_trap_handler g_user_memory_due_trap_handler = NULL; //MWG
 due_candidates_t g_candidates; //MWG
 due_cacheline_t g_cacheline; //MWG
 char g_candidates_cstring[2048]; //MWG
-char g_recovery_cstring[2048]; //MWG
+char g_recovery_cstring[512]; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -178,47 +178,15 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
     unsigned long cacheline_size = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_SIZE
     unsigned long blockpos = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
+    unsigned long cl[cacheline_size/sizeof(unsigned long)];
+
+    for (int i = 0; i < cacheline_size/sizeof(unsigned long); i++)
+        cl[i] = read_csr(0x8); //CSR_PENALTY_BOX_CACHELINE_WORD. Hardware will give us a different 64-bit chunk every iteration. If we over-read, then something bad may happen in HW.
 
     unsigned long words_per_block = cacheline_size / wordsize;
-    unsigned long cl[words_per_block];
-
-    //FIXME: cacheline and word sizes scalability
-    //This ugliness is due to need for constants in the read_csr() macro. Cannot dynamically compute an argument.
-    if (words_per_block >= 1)
-        cl[0] = read_csr(0x8); //CSR_PENALTY_BOX_CACHELINE_BLK0
-    if (words_per_block >= 2)
-        cl[1] = read_csr(0x9); //CSR_PENALTY_BOX_CACHELINE_BLK1
-    if (words_per_block >= 3)
-        cl[2] = read_csr(0xa); //CSR_PENALTY_BOX_CACHELINE_BLK2
-    if (words_per_block >= 4)
-        cl[3] = read_csr(0xb); //CSR_PENALTY_BOX_CACHELINE_BLK3
-    if (words_per_block >= 5)
-        cl[4] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK4
-    if (words_per_block >= 6)
-        cl[5] = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLK5
-    if (words_per_block >= 7)
-        cl[6] = read_csr(0xe); //CSR_PENALTY_BOX_CACHELINE_BLK6
-    if (words_per_block >= 8)
-        cl[7] = read_csr(0xf); //CSR_PENALTY_BOX_CACHELINE_BLK7
-    if (words_per_block >= 9)
-        cl[8] = read_csr(0x10); //CSR_PENALTY_BOX_CACHELINE_BLK8
-    if (words_per_block >= 10)
-        cl[9] = read_csr(0x11); //CSR_PENALTY_BOX_CACHELINE_BLK9
-    if (words_per_block >= 11)
-        cl[10] = read_csr(0x12); //CSR_PENALTY_BOX_CACHELINE_BLK10
-    if (words_per_block >= 12)
-        cl[11] = read_csr(0x13); //CSR_PENALTY_BOX_CACHELINE_BLK11
-    if (words_per_block >= 13)
-        cl[12] = read_csr(0x14); //CSR_PENALTY_BOX_CACHELINE_BLK12
-    if (words_per_block >= 14)
-        cl[13] = read_csr(0x15); //CSR_PENALTY_BOX_CACHELINE_BLK13
-    if (words_per_block >= 15)
-        cl[14] = read_csr(0x16); //CSR_PENALTY_BOX_CACHELINE_BLK14
-    if (words_per_block >= 16)
-        cl[15] = read_csr(0x17); //CSR_PENALTY_BOX_CACHELINE_BLK15
-
+    char* cl_cast = (char*)(cl);
     for (int i = 0; i < words_per_block; i++) {
-        memcpy(cacheline->words[i].bytes, cl+i, wordsize);
+        memcpy(cacheline->words[i].bytes, cl_cast+(i*wordsize), wordsize);
         cacheline->words[i].size = wordsize;
     }
     cacheline->blockpos = blockpos;
@@ -231,7 +199,7 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidates_t* candidates) {
       int count = 0;
       int k = 0;
-      size_t wordsize = 8; //FIXME: how to make this a run-time option? This MUST match spike!
+      unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
       word_t w;
       w.size = wordsize;
       // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
@@ -245,7 +213,7 @@ void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidate
           script_stdout[k++] = ','; //Change newline to comma in buffer so we can reuse it for data recovery insn
           copy_word(candidates->candidate_messages+count, &w);
           count++;
-      } while(script_stdout[k] != '\0' && count < 32 && k < len);
+      } while(script_stdout[k] != '\0' && count < 64 && k < len);
       candidates->size = count;
       script_stdout[k-1] = '\0';
 }
@@ -299,7 +267,7 @@ void copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src) {
 //MWG
 void copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
     if (dest && src) {
-        for (int i = 0; i < 32; i++)
+        for (int i = 0; i < 64; i++)
             copy_word(dest->candidate_messages+i, src->candidate_messages+i);
         dest->size = src->size;
     }

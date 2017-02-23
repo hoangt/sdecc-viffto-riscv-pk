@@ -80,7 +80,7 @@ typedef struct {
 
 //MWG
 typedef struct {
-    word_t candidate_messages[32]; //Support UP TO 32 candidate messages
+    word_t candidate_messages[64]; //Support UP TO 64 candidate messages
     size_t size;
 } due_candidates_t;
 
