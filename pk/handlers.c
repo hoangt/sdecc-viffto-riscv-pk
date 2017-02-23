@@ -133,16 +133,18 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
 //MWG
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
-       word_t recovered_value, user_recovered_value;
-       do_data_recovery(&recovered_value); //Pre-select recovery value. FIXME: inst recovery?
-       copy_word(&user_recovered_value, &recovered_value);
-       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &user_recovered_value); //May clobber recovered_value
+       word_t recovered_value;
+       copy_word(&recovered_value, &(g_candidates.candidate_messages[0])); //Default: first candidate in list
+       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); //May clobber recovered_value
        void* ptr = (void*)(tf->badvaddr);
        switch (retval) {
          case 0: //User handler indicated success
-             memcpy(ptr, user_recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             //FIXME: memwordsize
+             memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              return;
-         case 1: //User handler wants us to use the pre-selected recovery value
+         case 1: //User handler wants us to use the generic recovery policy
+             do_data_recovery(&recovered_value); //FIXME: inst recovery?
+             //FIXME: memwordsize
              memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              return;
          default: //User handler wants us to use default safe handler
@@ -181,21 +183,21 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 
     //FIXME: cacheline and word sizes scalability
     //This ugliness is due to need for constants in the read_csr() macro. Cannot dynamically compute an argument.
-    if (cacheline_size >= 1)
+    if (words_per_block >= 1)
         cl[0] = read_csr(0x8); //CSR_PENALTY_BOX_CACHELINE_BLK0
-    if (cacheline_size >= 2)
+    if (words_per_block >= 2)
         cl[1] = read_csr(0x9); //CSR_PENALTY_BOX_CACHELINE_BLK1
-    if (cacheline_size >= 3)
+    if (words_per_block >= 3)
         cl[2] = read_csr(0xa); //CSR_PENALTY_BOX_CACHELINE_BLK2
-    if (cacheline_size >= 4)
+    if (words_per_block >= 4)
         cl[3] = read_csr(0xb); //CSR_PENALTY_BOX_CACHELINE_BLK3
-    if (cacheline_size >= 5)
+    if (words_per_block >= 5)
         cl[4] = read_csr(0xc); //CSR_PENALTY_BOX_CACHELINE_BLK4
-    if (cacheline_size >= 6)
+    if (words_per_block >= 6)
         cl[5] = read_csr(0xd); //CSR_PENALTY_BOX_CACHELINE_BLK5
-    if (cacheline_size >= 7)
+    if (words_per_block >= 7)
         cl[6] = read_csr(0xe); //CSR_PENALTY_BOX_CACHELINE_BLK6
-    if (cacheline_size >= 8)
+    if (words_per_block >= 8)
         cl[7] = read_csr(0xf); //CSR_PENALTY_BOX_CACHELINE_BLK7
 
     for (int i = 0; i < words_per_block; i++) {
