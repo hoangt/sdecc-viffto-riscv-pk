@@ -125,6 +125,7 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
       word_t recovered_value;
       for (size_t i = 0; i < 32; i++)
           recovered_value.bytes[i] = 0; //Just make sure
+      //FIXME: bytes per word
       memcpy((void*)(tf->badvaddr), recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
   }
   panic("Default pk memory DUE trap handler: panic()");
@@ -199,6 +200,22 @@ int getDUECacheline(due_cacheline_t* cacheline) {
         cl[6] = read_csr(0xe); //CSR_PENALTY_BOX_CACHELINE_BLK6
     if (words_per_block >= 8)
         cl[7] = read_csr(0xf); //CSR_PENALTY_BOX_CACHELINE_BLK7
+    if (words_per_block >= 9)
+        cl[8] = read_csr(0x10); //CSR_PENALTY_BOX_CACHELINE_BLK8
+    if (words_per_block >= 10)
+        cl[9] = read_csr(0x11); //CSR_PENALTY_BOX_CACHELINE_BLK9
+    if (words_per_block >= 11)
+        cl[10] = read_csr(0x12); //CSR_PENALTY_BOX_CACHELINE_BLK10
+    if (words_per_block >= 12)
+        cl[11] = read_csr(0x13); //CSR_PENALTY_BOX_CACHELINE_BLK11
+    if (words_per_block >= 13)
+        cl[12] = read_csr(0x14); //CSR_PENALTY_BOX_CACHELINE_BLK12
+    if (words_per_block >= 14)
+        cl[13] = read_csr(0x15); //CSR_PENALTY_BOX_CACHELINE_BLK13
+    if (words_per_block >= 15)
+        cl[14] = read_csr(0x16); //CSR_PENALTY_BOX_CACHELINE_BLK14
+    if (words_per_block >= 16)
+        cl[15] = read_csr(0x17); //CSR_PENALTY_BOX_CACHELINE_BLK15
 
     for (int i = 0; i < words_per_block; i++) {
         memcpy(cacheline->words[i].bytes, cl+i, wordsize);
