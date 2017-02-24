@@ -125,8 +125,8 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
       word_t recovered_value;
       for (size_t i = 0; i < 32; i++)
           recovered_value.bytes[i] = 0; //Just make sure
-      //FIXME: bytes per word
-      memcpy((void*)(tf->badvaddr), recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+      writeback_recovered_message(&recovered_value);
+      //memcpy((void*)(tf->badvaddr), recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
   }
   panic("Default pk memory DUE trap handler: panic()");
 }
@@ -140,20 +140,26 @@ void handle_memory_due(trapframe_t* tf) {
        void* ptr = (void*)(tf->badvaddr);
        switch (retval) {
          case 0: //User handler indicated success
-             //FIXME: memwordsize
-             memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             if (writeback_recovered_message(&recovered_value))
+                 default_memory_due_trap_handler(tf);
+             //memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             tf->epc += 4;
              return;
          case 1: //User handler wants us to use the generic recovery policy
              do_data_recovery(&recovered_value); //FIXME: inst recovery?
-             //FIXME: memwordsize
-             memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             if (writeback_recovered_message(&recovered_value))
+                 default_memory_due_trap_handler(tf);
+             //memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
+             tf->epc += 4;
              return;
          default: //User handler wants us to use default safe handler
              default_memory_due_trap_handler(tf);
+             tf->epc += 4;
              return;
        }
   }
   default_memory_due_trap_handler(tf);
+  tf->epc += 4;
 }
 
 //MWG
@@ -284,4 +290,31 @@ void copy_trapframe(trapframe_t* dest, trapframe_t* src) {
        dest->cause = src->cause;
        dest->insn = src->insn;
    }
+}
+
+//MWG
+int writeback_recovered_message(word_t* recovered_message) {
+    if (!recovered_message)
+        return -1;
+
+    unsigned long chunk;
+    unsigned long* chunkptr;
+
+    if (recovered_message->size <= sizeof(unsigned long)) {
+        chunkptr = (unsigned long*)(recovered_message->bytes);
+        chunk = *chunkptr;
+        write_csr(0x4, chunk); //CSR_PENALTY_BOX_MSG
+        write_csr(0x9, 0); //CSR_PENALTY_BOX_RDY
+        return 0;
+    }
+
+    for (int i = 0; i < recovered_message->size/sizeof(unsigned long); i++) {
+        chunkptr = (unsigned long*)(recovered_message->bytes+(i*sizeof(unsigned long)));
+        chunk = *chunkptr;
+        //Pipeline the results to the CSR, which is kinda like a FIFO interface
+        write_csr(0x4, chunk); //CSR_PENALTY_BOX_MSG
+    }
+
+    write_csr(0x9, 0); //CSR_PENALTY_BOX_RDY
+    return 0;
 }
