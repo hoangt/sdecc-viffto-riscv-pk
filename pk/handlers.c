@@ -133,30 +133,28 @@ void handle_memory_due(trapframe_t* tf) {
        
        unsigned long load_size = read_csr(0x4); //CSR_PENALTY_BOX_LOAD_SIZE
        unsigned long msg_size = recovered_value.size;
-       unsigned long badvaddr = (unsigned long)(tf->badvaddr);
-       unsigned long offset = badvaddr - (badvaddr & ~(msg_size-1));
-       if (offset+load_size > msg_size) { //TODO: load values spanning multiple memory messages
+       long badvaddr = tf->badvaddr;
+       long offset = badvaddr - (badvaddr & ~(msg_size-1));
+       /*if (offset+load_size > msg_size) { //TODO: load values spanning multiple memory messages
              default_memory_due_trap_handler(tf);
              tf->epc += 4;
              return;
-       }
+       }*/
        g_candidates.load_message_offset = offset;
        g_candidates.load_size = load_size;
 
        int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); //May clobber recovered_value
-       void* ptr = (void*)(tf->badvaddr);
+       void* ptr = (void*)(badvaddr);
        switch (retval) {
          case 0: //User handler indicated success
              if (writeback_recovered_message(&recovered_value, load_size, offset, tf))
                  default_memory_due_trap_handler(tf);
-             //memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              tf->epc += 4;
              return;
          case 1: //User handler wants us to use the generic recovery policy
              do_data_recovery(&recovered_value); //FIXME: inst recovery?
              if (writeback_recovered_message(&recovered_value, load_size, offset, tf))
                  default_memory_due_trap_handler(tf);
-             //memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              tf->epc += 4;
              return;
          default: //User handler wants us to use default safe handler
@@ -187,7 +185,6 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     if (!cacheline)
         return 1;
 
-    //FIXME: how to pass in as runtime options to pk? These MUST match what is used by Spike!
     unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
     unsigned long cacheline_size = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_SIZE
     unsigned long blockpos = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
@@ -323,42 +320,76 @@ unsigned long decode_rd(long insn) {
 }
 
 //MWG
-int writeback_recovered_message(word_t* recovered_message, unsigned long load_size, unsigned long offset, trapframe_t* tf) {
+int writeback_recovered_message(word_t* recovered_message, unsigned long load_size, long offset, trapframe_t* tf) {
     if (!recovered_message || !tf)
         return -1;
     
-    unsigned long msg_size = recovered_message->size; 
-    
-    //TODO
-    if (offset+load_size > msg_size)
-        return -1;
-
     unsigned long rd = decode_rd(tf->insn);
-    unsigned long val;
+    unsigned long msg_size = recovered_message->size; 
     void* badvaddr_msg = (void*)(tf->badvaddr & (~(1-msg_size)));
-   
+    char load_val[load_size];
+
+    // ----- Four cases to handle ----
+
+    //Load value fits entirely inside message -- the expected common case
+    if (offset >= 0 && offset+load_size <= msg_size) {
+        memcpy(load_val, recovered_message->bytes+offset, load_size);
+    
+    //Load value starts inside message but extends beyond it
+    } else if (offset >= 0 && offset+load_size > msg_size) {
+        unsigned remain = load_size;
+        memcpy(load_val, recovered_message->bytes+offset, msg_size-offset);
+        remain -= msg_size-offset;
+        unsigned transferred = load_size - remain;
+        size_t blockpos = g_cacheline.blockpos;
+        size_t curr_blockpos = blockpos+1;
+        while (remain > 0) {
+            if (msg_size > remain) {
+                memcpy(load_val+transferred, g_cacheline.words[curr_blockpos].bytes, remain);
+                remain = 0;
+            } else {
+                memcpy(load_val+transferred, g_cacheline.words[curr_blockpos].bytes, msg_size);
+                remain -= msg_size;
+            }
+            transferred = load_size - remain;
+        }
+    } else {
+        return -1;
+    }
+
+    //Load value starts before message but extends into and/or beyond it -- TODO
+
+    //Load value starts before message and ends before it -- TODO -- Spike support?
+
+    //Load value starts after message and ends after it -- TODO -- Spike support?
+        
+    unsigned long val;
     switch (load_size) {
         case 1:
-            val = (unsigned long)(*((unsigned char*)(recovered_message->bytes+offset)));
-            tf->gpr[rd] = val; //Write to trapframe
-            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
-            return 0;
+            ; //shut up compiler
+            unsigned char* tmp = (unsigned char*)(load_val);
+            val = (unsigned long)(*tmp);
+            break;
         case 2:
-            val = (unsigned long)(*((unsigned short*)(recovered_message->bytes+offset)));
-            tf->gpr[rd] = val; //Write to trapframe
-            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
-            return 0;
+            ; //shut up compiler
+            unsigned short* tmp2 = (unsigned short*)(load_val);
+            val = (unsigned long)(*tmp2);
+            break;
         case 4:
-            val = (unsigned long)(*((unsigned*)(recovered_message->bytes+offset)));
-            tf->gpr[rd] = val; //Write to trapframe
-            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
-            return 0;
+            ; //shut up compiler
+            unsigned* tmp3 = (unsigned*)(load_val);
+            val = (unsigned long)(*tmp3);
+            break;
         case 8:
-            val = *((unsigned long*)(recovered_message->bytes+offset));
-            tf->gpr[rd] = val; //Write to trapframe
-            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
-            return 0;
+            ; //shut up compiler
+            unsigned long* tmp4 = (unsigned long*)(load_val);
+            val = *tmp4;
+            break;
         default:
             return -1;
     }
+
+    tf->gpr[rd] = val; //Write to load value to trapframe
+    memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write message to main memory
+    return 0;
 }
