@@ -82,6 +82,8 @@ typedef struct {
 typedef struct {
     word_t candidate_messages[64]; //Support UP TO 64 candidate messages
     size_t size;
+    size_t load_message_offset;
+    size_t load_size;
 } due_candidates_t;
 
 //MWG
@@ -101,11 +103,12 @@ void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidate
 void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w); //MWG
 int getDUECacheline(due_cacheline_t* cacheline); //MWG
 void do_data_recovery(word_t* w); //MWG
-void copy_word(word_t* dest, word_t* src); //MWG
-void copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
-void copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
-void copy_trapframe(trapframe_t* dest, trapframe_t* src); //MWG
-int writeback_recovered_message(word_t* recovered_message); //MWG
+int copy_word(word_t* dest, word_t* src); //MWG
+int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
+int copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
+int copy_trapframe(trapframe_t* dest, trapframe_t* src); //MWG
+unsigned long decode_rd(long insn); //MWG
+int writeback_recovered_message(word_t* recovered_message, unsigned long load_size, unsigned long offset, trapframe_t* tf); //MWG
 
 typedef struct {
   int elf64;

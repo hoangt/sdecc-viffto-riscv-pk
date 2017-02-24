@@ -619,13 +619,11 @@
 #define CSR_FRM 0x2
 #define CSR_FCSR 0x3
 //Begin MWG
-//FIXME: Make penalty box scale with cacheline size!
-#define CSR_PENALTY_BOX_MSG 0x4
+#define CSR_PENALTY_BOX_LOAD_SIZE 0x4
 #define CSR_PENALTY_BOX_MSG_SIZE 0x5
 #define CSR_PENALTY_BOX_CACHELINE_SIZE 0x6
 #define CSR_PENALTY_BOX_CACHELINE_BLKPOS 0x7
 #define CSR_PENALTY_BOX_CACHELINE_WORD 0x8
-#define CSR_PENALTY_BOX_RDY 0x9
 //End MWG
 #define CSR_CYCLE 0xc00
 #define CSR_TIME 0xc01
@@ -941,13 +939,11 @@ DECLARE_CSR(fflags, CSR_FFLAGS)
 DECLARE_CSR(frm, CSR_FRM)
 DECLARE_CSR(fcsr, CSR_FCSR)
 //MWG
-//FIXME: Make penalty box scale with cacheline size!
-DECLARE_CSR(penaltybox_message, CSR_PENALTY_BOX_MSG)
+DECLARE_CSR(penaltybox_message, CSR_PENALTY_BOX_LOAD_SIZE)
 DECLARE_CSR(penaltybox_message_size, CSR_PENALTY_BOX_MSG_SIZE)
 DECLARE_CSR(penaltybox_cacheline_size, CSR_PENALTY_BOX_CACHELINE_SIZE)
 DECLARE_CSR(penaltybox_cacheline_blkpos, CSR_PENALTY_BOX_CACHELINE_BLKPOS)
 DECLARE_CSR(penaltybox_cacheline_word, CSR_PENALTY_BOX_CACHELINE_WORD)
-DECLARE_CSR(penaltybox_rdy, CSR_PENALTY_BOX_RDY)
 //End MWG
 DECLARE_CSR(cycle, CSR_CYCLE)
 DECLARE_CSR(time, CSR_TIME)

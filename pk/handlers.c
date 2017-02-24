@@ -120,34 +120,41 @@ void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr) {
 
 //MWG
 int default_memory_due_trap_handler(trapframe_t* tf) {
-  if (tf) {
-      //Ignore candidates, simply writeback 0 word
-      word_t recovered_value;
-      for (size_t i = 0; i < 32; i++)
-          recovered_value.bytes[i] = 0; //Just make sure
-      writeback_recovered_message(&recovered_value);
-      //memcpy((void*)(tf->badvaddr), recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
-  }
   panic("Default pk memory DUE trap handler: panic()");
+  return 0;
 }
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
+
        word_t recovered_value;
        copy_word(&recovered_value, &(g_candidates.candidate_messages[0])); //Default: first candidate in list
+       
+       unsigned long load_size = read_csr(0x4); //CSR_PENALTY_BOX_LOAD_SIZE
+       unsigned long msg_size = recovered_value.size;
+       unsigned long badvaddr = (unsigned long)(tf->badvaddr);
+       unsigned long offset = badvaddr - (badvaddr & ~(msg_size-1));
+       if (offset+load_size > msg_size) { //TODO: load values spanning multiple memory messages
+             default_memory_due_trap_handler(tf);
+             tf->epc += 4;
+             return;
+       }
+       g_candidates.load_message_offset = offset;
+       g_candidates.load_size = load_size;
+
        int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value); //May clobber recovered_value
        void* ptr = (void*)(tf->badvaddr);
        switch (retval) {
          case 0: //User handler indicated success
-             if (writeback_recovered_message(&recovered_value))
+             if (writeback_recovered_message(&recovered_value, load_size, offset, tf))
                  default_memory_due_trap_handler(tf);
              //memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              tf->epc += 4;
              return;
          case 1: //User handler wants us to use the generic recovery policy
              do_data_recovery(&recovered_value); //FIXME: inst recovery?
-             if (writeback_recovered_message(&recovered_value))
+             if (writeback_recovered_message(&recovered_value, load_size, offset, tf))
                  default_memory_due_trap_handler(tf);
              //memcpy(ptr, recovered_value.bytes, 8); //Put the recovered data back in memory. FIXME: this is architecturally incorrect.. we need to recover via CSR to be technically correct
              tf->epc += 4;
@@ -227,7 +234,7 @@ void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidate
 //MWG
 void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w) {
       int k = 0;
-      size_t wordsize = 8;
+      unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
       // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
       do {
           for (size_t i = 0; i < wordsize; i++) {
@@ -252,35 +259,49 @@ void do_data_recovery(word_t* w) {
 }
 
 //MWG
-void copy_word(word_t* dest, word_t* src) {
+int copy_word(word_t* dest, word_t* src) {
    if (dest && src) {
        for (int i = 0; i < 32; i++)
            dest->bytes[i] = src->bytes[i];
        dest->size = src->size;
+
+       return 0;
    }
+
+   return 1;
 }
 
 //MWG
-void copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src) {
+int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src) {
     if (dest && src) {
         for (int i = 0; i < 32; i++)
             copy_word(dest->words+i, src->words+i);
         dest->size = src->size;
         dest->blockpos = src->blockpos;
+
+        return 0;
     }
+    
+    return 1;
 }
 
 //MWG
-void copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
+int copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
     if (dest && src) {
         for (int i = 0; i < 64; i++)
             copy_word(dest->candidate_messages+i, src->candidate_messages+i);
         dest->size = src->size;
+        dest->load_message_offset = src->load_message_offset;
+        dest->load_size = src->load_size;
+        
+        return 0;
     }
+
+    return 1;
 }
 
 //MWG
-void copy_trapframe(trapframe_t* dest, trapframe_t* src) {
+int copy_trapframe(trapframe_t* dest, trapframe_t* src) {
    if (dest && src) {
        for (int i = 0; i < 32; i++)
            dest->gpr[i] = src->gpr[i];
@@ -289,32 +310,55 @@ void copy_trapframe(trapframe_t* dest, trapframe_t* src) {
        dest->badvaddr = src->badvaddr;
        dest->cause = src->cause;
        dest->insn = src->insn;
+
+       return 0;
    }
+
+   return 1;
 }
 
 //MWG
-int writeback_recovered_message(word_t* recovered_message) {
-    if (!recovered_message)
+unsigned long decode_rd(long insn) {
+   return (insn >> 7) & ((1 << 5)-1); 
+}
+
+//MWG
+int writeback_recovered_message(word_t* recovered_message, unsigned long load_size, unsigned long offset, trapframe_t* tf) {
+    if (!recovered_message || !tf)
+        return -1;
+    
+    unsigned long msg_size = recovered_message->size; 
+    
+    //TODO
+    if (offset+load_size > msg_size)
         return -1;
 
-    unsigned long chunk;
-    unsigned long* chunkptr;
-
-    if (recovered_message->size <= sizeof(unsigned long)) {
-        chunkptr = (unsigned long*)(recovered_message->bytes);
-        chunk = *chunkptr;
-        write_csr(0x4, chunk); //CSR_PENALTY_BOX_MSG
-        write_csr(0x9, 0); //CSR_PENALTY_BOX_RDY
-        return 0;
+    unsigned long rd = decode_rd(tf->insn);
+    unsigned long val;
+    void* badvaddr_msg = (void*)(tf->badvaddr & (~(1-msg_size)));
+   
+    switch (load_size) {
+        case 1:
+            val = (unsigned long)(*((unsigned char*)(recovered_message->bytes+offset)));
+            tf->gpr[rd] = val; //Write to trapframe
+            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
+            return 0;
+        case 2:
+            val = (unsigned long)(*((unsigned short*)(recovered_message->bytes+offset)));
+            tf->gpr[rd] = val; //Write to trapframe
+            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
+            return 0;
+        case 4:
+            val = (unsigned long)(*((unsigned*)(recovered_message->bytes+offset)));
+            tf->gpr[rd] = val; //Write to trapframe
+            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
+            return 0;
+        case 8:
+            val = *((unsigned long*)(recovered_message->bytes+offset));
+            tf->gpr[rd] = val; //Write to trapframe
+            memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write to main memory
+            return 0;
+        default:
+            return -1;
     }
-
-    for (int i = 0; i < recovered_message->size/sizeof(unsigned long); i++) {
-        chunkptr = (unsigned long*)(recovered_message->bytes+(i*sizeof(unsigned long)));
-        chunk = *chunkptr;
-        //Pipeline the results to the CSR, which is kinda like a FIFO interface
-        write_csr(0x4, chunk); //CSR_PENALTY_BOX_MSG
-    }
-
-    write_csr(0x9, 0); //CSR_PENALTY_BOX_RDY
-    return 0;
 }
