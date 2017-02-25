@@ -82,8 +82,6 @@ typedef struct {
 typedef struct {
     word_t candidate_messages[64]; //Support UP TO 64 candidate messages
     size_t size;
-    long load_message_offset;
-    size_t load_size;
 } due_candidates_t;
 
 //MWG
@@ -94,7 +92,7 @@ typedef struct {
 } due_cacheline_t;
       
 typedef void (*trap_handler)(trapframe_t*); //MWG
-typedef int (*user_due_trap_handler)(trapframe_t*, due_candidates_t*, due_cacheline_t*, word_t*); //MWG
+typedef int (*user_due_trap_handler)(trapframe_t*, due_candidates_t*, due_cacheline_t*, word_t*, word_t*, short, short); //MWG
 int default_memory_due_trap_handler(trapframe_t*); //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
 
@@ -107,8 +105,9 @@ int copy_word(word_t* dest, word_t* src); //MWG
 int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
 int copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
 int copy_trapframe(trapframe_t* dest, trapframe_t* src); //MWG
-unsigned long decode_rd(long insn); //MWG
-int writeback_recovered_message(word_t* recovered_message, unsigned long load_size, long offset, trapframe_t* tf); //MWG
+unsigned decode_rd(long insn); //MWG
+int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, unsigned load_size, int offset); //MWG
+int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf); //MWG 
 
 typedef struct {
   int elf64;
