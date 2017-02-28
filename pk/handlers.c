@@ -332,8 +332,8 @@ short decode_regfile(long insn) {
 
 //MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, unsigned load_size, int offset) {
-    //if (!recovered_message || !load_value || !cl) //TEMP FIXME
-        //return -1; //TEMP FIXME
+    if (!recovered_message || !load_value || !cl)
+        return -1;
     
     unsigned msg_size = recovered_message->size; 
     unsigned blockpos = cl->blockpos;
