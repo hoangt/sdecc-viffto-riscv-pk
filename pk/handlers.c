@@ -349,10 +349,11 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     //Load value starts inside message but extends beyond it (e.g., we load an aligned unsigned long (64-bits) but messages are only 32-bits
     } else if (offset >= 0 && offset < msg_size && offset+load_size > msg_size) {
         unsigned remain = load_size;
+        size_t curr_blockpos = blockpos+1;
+        unsigned transferred = 0;
         memcpy(load_value->bytes, recovered_message->bytes+offset, msg_size-offset);
         remain -= msg_size-offset;
-        unsigned transferred = 0;
-        size_t curr_blockpos = blockpos+1;
+        transferred = load_size - remain;
         while (remain > 0) {
             if (msg_size > remain) {
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, remain);
@@ -503,7 +504,7 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
     }
 
     unsigned long msg_size = recovered_message->size; 
-    void* badvaddr_msg = (void*)((unsigned long)(tf->badvaddr) & (1-msg_size));
+    void* badvaddr_msg = (void*)((unsigned long)(tf->badvaddr) & (~(msg_size-1));
     memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write message to main memory
     return 0;
 }
