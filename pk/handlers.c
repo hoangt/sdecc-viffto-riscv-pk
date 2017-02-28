@@ -131,17 +131,18 @@ void handle_memory_due(trapframe_t* tf) {
        word_t recovered_load_value;
        recovered_value.size = 0;
        recovered_load_value.size = 0;
-       //copy_word(&recovered_value, &(g_candidates.candidate_messages[0])); //Default: first candidate in list
+       copy_word(&recovered_value, &(g_candidates.candidate_messages[0])); //Default: first candidate in list
        
        long badvaddr = tf->badvaddr;
        short msg_size = recovered_value.size;
        short load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
        short load_message_offset = badvaddr - (badvaddr & ~(msg_size-1));
+       printk("load_size: %d, msg_size = %d, badvaddr = %p, offset = %d\n", load_size, msg_size, badvaddr, load_message_offset);
        short load_dest_reg = decode_rd(tf->insn);
        short float_regfile = decode_regfile(tf->insn);
 
        float_trapframe_t float_tf;
-       if (set_float_trapframe(&float_tf)) 
+       if (set_float_trapframe(&float_tf))
           default_memory_due_trap_handler(tf);
        
        do_data_recovery(&recovered_value); //FIXME: inst recovery?
@@ -150,14 +151,16 @@ void handle_memory_due(trapframe_t* tf) {
        switch (retval) {
          case 0: //User handler indicated success, use their specified value
          case 1: //User handler wants us to use the generic recovery policy. Use our specified value. FIXME: what if user clobbered it but doesn't want to use it?
-             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, load_size, load_message_offset)) 
+             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, load_size, load_message_offset))
                  default_memory_due_trap_handler(tf);
              if (writeback_recovered_message(&recovered_value, &recovered_load_value, tf, load_dest_reg, float_regfile))
                  default_memory_due_trap_handler(tf);
              tf->epc += 4;
              return;
-         default: //User handler wants us to use default safe handler (crash)
+         case -1: //User handler wants us to use default safe handler (crash)
+         default:
              default_memory_due_trap_handler(tf); 
+             return;
        }
   }
   default_memory_due_trap_handler(tf); 
