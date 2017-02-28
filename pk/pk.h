@@ -24,6 +24,11 @@ typedef struct
   long insn;
 } trapframe_t;
 
+//Originally defined in riscv-pk/pk/pk.h
+typedef struct {
+    long fpr[32];
+} float_trapframe_t;
+
 struct mainvars {
   uint64_t argc;
   uint64_t argv[127]; // this space is shared with the arg strings themselves
@@ -92,7 +97,7 @@ typedef struct {
 } due_cacheline_t;
       
 typedef void (*trap_handler)(trapframe_t*); //MWG
-typedef int (*user_due_trap_handler)(trapframe_t*, due_candidates_t*, due_cacheline_t*, word_t*, word_t*, short, short); //MWG
+typedef int (*user_due_trap_handler)(trapframe_t*, float_trapframe_t*, due_candidates_t*, due_cacheline_t*, word_t*, short, short, short, short); //MWG
 int default_memory_due_trap_handler(trapframe_t*); //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
 
@@ -105,9 +110,14 @@ int copy_word(word_t* dest, word_t* src); //MWG
 int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
 int copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
 int copy_trapframe(trapframe_t* dest, trapframe_t* src); //MWG
+int copy_float_trapframe(float_trapframe_t* dest, float_trapframe_t* src); //MWG
 unsigned decode_rd(long insn); //MWG
+short decode_regfile(long insn); //MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, unsigned load_size, int offset); //MWG
-int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf); //MWG 
+int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, unsigned rd, short float_regfile); //MWG 
+int get_float_register(unsigned frd, unsigned long* raw_value); //MWG
+int set_float_register(unsigned frd, unsigned long raw_value); //MWG
+int set_float_trapframe(float_trapframe_t* float_tf); //MWG
 
 typedef struct {
   int elf64;

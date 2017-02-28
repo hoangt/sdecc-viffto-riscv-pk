@@ -8,7 +8,7 @@
 user_due_trap_handler g_user_memory_due_trap_handler = NULL; //MWG
 due_candidates_t g_candidates; //MWG
 due_cacheline_t g_cacheline; //MWG
-char g_candidates_cstring[2048]; //MWG
+char g_candidates_cstring[4096]; //MWG
 char g_recovery_cstring[512]; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
@@ -127,52 +127,40 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
 //MWG
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
-
        word_t recovered_value;
        word_t recovered_load_value;
        recovered_value.size = 0;
        recovered_load_value.size = 0;
-       copy_word(&recovered_value, &(g_candidates.candidate_messages[0])); //Default: first candidate in list
+       //copy_word(&recovered_value, &(g_candidates.candidate_messages[0])); //Default: first candidate in list
        
        long badvaddr = tf->badvaddr;
        short msg_size = recovered_value.size;
        short load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
        short load_message_offset = badvaddr - (badvaddr & ~(msg_size-1));
        short load_dest_reg = decode_rd(tf->insn);
-       /*if (offset+load_size > msg_size) { //TODO: load values spanning multiple memory messages
-             default_memory_due_trap_handler(tf);
-             tf->epc += 4;
-             return;
-       }*/
-       if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, load_size, load_message_offset))
-           default_memory_due_trap_handler(tf);
+       short float_regfile = decode_regfile(tf->insn);
 
-       int retval = g_user_memory_due_trap_handler(tf, &g_candidates, &g_cacheline, &recovered_value, &recovered_load_value, load_dest_reg, load_message_offset); //May clobber recovered_value
+       float_trapframe_t float_tf;
+       if (set_float_trapframe(&float_tf)) 
+          default_memory_due_trap_handler(tf);
+       
+       do_data_recovery(&recovered_value); //FIXME: inst recovery?
+       int retval = g_user_memory_due_trap_handler(tf, &float_tf, &g_candidates, &g_cacheline, &recovered_value, load_size, load_dest_reg, float_regfile, load_message_offset); //May clobber recovered_value
        void* ptr = (void*)(badvaddr);
        switch (retval) {
-         case 0: //User handler indicated success
-             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, load_size, load_message_offset))
+         case 0: //User handler indicated success, use their specified value
+         case 1: //User handler wants us to use the generic recovery policy. Use our specified value. FIXME: what if user clobbered it but doesn't want to use it?
+             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, load_size, load_message_offset)) 
                  default_memory_due_trap_handler(tf);
-             if (writeback_recovered_message(&recovered_value, &recovered_load_value, tf))
-                 default_memory_due_trap_handler(tf);
-             tf->epc += 4;
-             return;
-         case 1: //User handler wants us to use the generic recovery policy
-             do_data_recovery(&recovered_value); //FIXME: inst recovery?
-             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, load_size, load_message_offset))
-                 default_memory_due_trap_handler(tf);
-             if (writeback_recovered_message(&recovered_value, &recovered_load_value, tf))
+             if (writeback_recovered_message(&recovered_value, &recovered_load_value, tf, load_dest_reg, float_regfile))
                  default_memory_due_trap_handler(tf);
              tf->epc += 4;
              return;
-         default: //User handler wants us to use default safe handler
-             default_memory_due_trap_handler(tf);
-             tf->epc += 4;
-             return;
+         default: //User handler wants us to use default safe handler (crash)
+             default_memory_due_trap_handler(tf); 
        }
   }
-  default_memory_due_trap_handler(tf);
-  tf->epc += 4;
+  default_memory_due_trap_handler(tf); 
 }
 
 //MWG
@@ -183,7 +171,7 @@ int getDUECandidateMessages(due_candidates_t* candidates) {
                  : "r" (&g_candidates_cstring));
 
     //Parse returned value
-    parse_sdecc_candidate_output(g_candidates_cstring, 2048, candidates);
+    parse_sdecc_candidate_output(g_candidates_cstring, 4096, candidates);
     
     return 0; 
 }
@@ -321,14 +309,31 @@ int copy_trapframe(trapframe_t* dest, trapframe_t* src) {
 }
 
 //MWG
+int copy_float_trapframe(float_trapframe_t* dest, float_trapframe_t* src) {
+   if (dest && src) {
+       for (int i = 0; i < 32; i++)
+           dest->fpr[i] = src->fpr[i];
+       return 0;
+   }
+
+   return 1;
+}
+
+//MWG
 unsigned decode_rd(long insn) {
    return (insn >> 7) & ((1 << 5)-1); 
 }
 
 //MWG
+short decode_regfile(long insn) {
+    //FLW: 0x2007 match, FLD: 0x3007
+    return ((insn & MATCH_FLW) == MATCH_FLW || (insn & MATCH_FLD) == MATCH_FLD);
+}
+
+//MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, unsigned load_size, int offset) {
-    if (!recovered_message || !load_value || !cl)
-        return -1;
+    //if (!recovered_message || !load_value || !cl) //TEMP FIXME
+        //return -1; //TEMP FIXME
     
     unsigned msg_size = recovered_message->size; 
     unsigned blockpos = cl->blockpos;
@@ -355,6 +360,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
                 remain -= msg_size;
             }
             transferred = load_size - remain;
+            curr_blockpos++;
         }
     } else {
         return -1;
@@ -371,11 +377,10 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
 }
 
 //MWG
-int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf) {
-    if (!recovered_message || !load_value || !tf)
+int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, unsigned rd, short float_regfile) {
+    if (!recovered_message || !load_value || !tf || rd < 0 || rd > 32)
         return -1;
-    
-       
+ 
     unsigned long val;
     switch (load_value->size) {
         case 1:
@@ -398,15 +403,380 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
             unsigned long* tmp4 = (unsigned long*)(load_value->bytes);
             val = *tmp4;
             break;
-        default:
+        default: 
             return -1;
     }
 
-    unsigned rd = decode_rd(tf->insn);
-    tf->gpr[rd] = val; //Write to load value to trapframe
-    
+    if (float_regfile) {
+        //Floating-point registers are not part of the trapframe, so I suppose we should just write the register directly.
+        //TEMP FIXME
+        asm volatile("lui %0, 0xdead;"
+                     : "=r" (val)
+                     :);
+        if (set_float_register(rd, val)) {
+            return -1;
+        }
+    } else {
+        tf->gpr[rd] = val; //Write load value to trapframe
+    }
     unsigned msg_size = recovered_message->size; 
     void* badvaddr_msg = (void*)(tf->badvaddr & (~(1-msg_size)));
     memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write message to main memory
+    return 0;
+}
+
+int set_float_register(unsigned frd, unsigned long raw_value) {
+    switch (frd) {
+        case 0: //f0
+            asm volatile("fmv.d.x f0, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 1: //f1
+            asm volatile("fmv.d.x f1, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 2: //f2
+            asm volatile("fmv.d.x f2, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 3: //f3
+            asm volatile("fmv.d.x f3, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 4: //f4
+            asm volatile("fmv.d.x f4, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 5: //f5
+            asm volatile("fmv.d.x f5, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 6: //f6
+            asm volatile("fmv.d.x f6, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 7: //f7
+            asm volatile("fmv.d.x f7, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 8: //f8
+            asm volatile("fmv.d.x f8, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 9: //f9
+            asm volatile("fmv.d.x f9, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 10: //f10
+            asm volatile("fmv.d.x f10, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 11: //f11
+            asm volatile("fmv.d.x f11, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 12: //f12
+            asm volatile("fmv.d.x f12, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 13: //f13
+            asm volatile("fmv.d.x f13, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 14: //f14
+            asm volatile("fmv.d.x f14, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 15: //f15
+            asm volatile("fmv.d.x f15, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 16: //f16
+            asm volatile("fmv.d.x f16, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 17: //f17
+            asm volatile("fmv.d.x f17, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 18: //f18
+            asm volatile("fmv.d.x f18, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 19: //f19
+            asm volatile("fmv.d.x f19, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 20: //f20
+            asm volatile("fmv.d.x f20, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 21: //f21
+            asm volatile("fmv.d.x f21, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 22: //f22
+            asm volatile("fmv.d.x f22, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 23: //f23
+            asm volatile("fmv.d.x f23, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 24: //f24
+            asm volatile("fmv.d.x f24, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 25: //f25
+            asm volatile("fmv.d.x f25, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 26: //f26
+            asm volatile("fmv.d.x f26, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 27: //f27
+            asm volatile("fmv.d.x f27, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 28: //f28
+            asm volatile("fmv.d.x f28, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 29: //f29
+            asm volatile("fmv.d.x f29, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 30: //f30
+            asm volatile("fmv.d.x f30, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        case 31: //f31
+            asm volatile("fmv.d.x f31, %0;"
+                         :
+                         : "r" (raw_value));
+            return 0;
+        default: //Bad register
+            return -1;
+    }
+}
+
+int get_float_register(unsigned frd, unsigned long* raw_value) {
+    if (!raw_value)
+        return -1;
+
+    unsigned long tmp; 
+    switch (frd) {
+        case 0: //f0
+            asm volatile("fmv.x.d %0, f0;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 1: //f1
+            asm volatile("fmv.x.d %0, f1;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 2: //f2
+            asm volatile("fmv.x.d %0, f2;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 3: //f3
+            asm volatile("fmv.x.d %0, f3;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 4: //f4
+            asm volatile("fmv.x.d %0, f4;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 5: //f5
+            asm volatile("fmv.x.d %0, f5;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 6: //f6
+            asm volatile("fmv.x.d %0, f6;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 7: //f7
+            asm volatile("fmv.x.d %0, f7;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 8: //f8
+            asm volatile("fmv.x.d %0, f8;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 9: //f9
+            asm volatile("fmv.x.d %0, f9;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 10: //f10
+            asm volatile("fmv.x.d %0, f10;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 11: //f11
+            asm volatile("fmv.x.d %0, f11;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 12: //f12
+            asm volatile("fmv.x.d %0, f12;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 13: //f13
+            asm volatile("fmv.x.d %0, f13;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 14: //f14
+            asm volatile("fmv.x.d %0, f14;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 15: //f15
+            asm volatile("fmv.x.d %0, f15;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 16: //f16
+            asm volatile("fmv.x.d %0, f16;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 17: //f17
+            asm volatile("fmv.x.d %0, f17;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 18: //f18
+            asm volatile("fmv.x.d %0, f18;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 19: //f19
+            asm volatile("fmv.x.d %0, f19;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 20: //f20
+            asm volatile("fmv.x.d %0, f20;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 21: //f21
+            asm volatile("fmv.x.d %0, f21;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 22: //f22
+            asm volatile("fmv.x.d %0, f22;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 23: //f23
+            asm volatile("fmv.x.d %0, f23;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 24: //f24
+            asm volatile("fmv.x.d %0, f24;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 25: //f25
+            asm volatile("fmv.x.d %0, f25;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 26: //f26
+            asm volatile("fmv.x.d %0, f26;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 27: //f27
+            asm volatile("fmv.x.d %0, f27;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 28: //f28
+            asm volatile("fmv.x.d %0, f28;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 29: //f29
+            asm volatile("fmv.x.d %0, f29;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 30: //f30
+            asm volatile("fmv.x.d %0, f30;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        case 31: //f31
+            asm volatile("fmv.x.d %0, f31;"
+                         : "=r" (tmp)
+                         :);
+            break;
+        default: //Bad register
+            return -1;
+    }
+
+    *raw_value = tmp;
+    return 0;
+}
+
+//MWG
+int set_float_trapframe(float_trapframe_t* float_tf) {
+    if (!float_tf)
+        return -1;
+
+    unsigned long raw_value;
+    for (int i = 0; i < 32; i++) {
+        if (get_float_register(i, &raw_value))
+            return -1;
+        float_tf->fpr[i] = raw_value;
+    }
+
     return 0;
 }
