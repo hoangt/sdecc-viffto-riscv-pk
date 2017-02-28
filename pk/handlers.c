@@ -137,7 +137,6 @@ void handle_memory_due(trapframe_t* tf) {
        short msg_size = recovered_value.size;
        short load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
        short load_message_offset = badvaddr - (badvaddr & ~(msg_size-1));
-       printk("load_size: %d, msg_size = %d, badvaddr = %p, offset = %d\n", load_size, msg_size, badvaddr, load_message_offset);
        short load_dest_reg = decode_rd(tf->insn);
        short float_regfile = decode_regfile(tf->insn);
 
@@ -412,18 +411,15 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
 
     if (float_regfile) {
         //Floating-point registers are not part of the trapframe, so I suppose we should just write the register directly.
-        //TEMP FIXME
-        asm volatile("lui %0, 0xdead;"
-                     : "=r" (val)
-                     :);
         if (set_float_register(rd, val)) {
             return -1;
         }
     } else {
         tf->gpr[rd] = val; //Write load value to trapframe
     }
-    unsigned msg_size = recovered_message->size; 
-    void* badvaddr_msg = (void*)(tf->badvaddr & (~(1-msg_size)));
+
+    unsigned long msg_size = recovered_message->size; 
+    void* badvaddr_msg = (void*)((unsigned long)(tf->badvaddr) & (1-msg_size));
     memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write message to main memory
     return 0;
 }
