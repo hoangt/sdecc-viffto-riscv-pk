@@ -14,9 +14,18 @@
 #include <string.h>
 #include <stdarg.h>
 
+#define NUM_GPR 32
+#define NUM_FPR 32
+#define MAX_CANDIDATE_MSG 64
+#define MAX_CACHELINE_WORDS 32
+#define MAX_WORD_SIZE 32
+
+#define G_CANDIDATES_CSTRING_SIZE 4096
+#define G_RECOVERY_CSTRING_SIZE 512
+
 typedef struct
 {
-  long gpr[32];
+  long gpr[NUM_GPR];
   long status;
   long epc;
   long badvaddr;
@@ -26,7 +35,7 @@ typedef struct
 
 //Originally defined in riscv-pk/pk/pk.h
 typedef struct {
-    long fpr[32];
+    long fpr[NUM_FPR];
 } float_trapframe_t;
 
 struct mainvars {
@@ -79,19 +88,19 @@ void boot_other_hart();
 
 //MWG
 typedef struct {
-    char bytes[32]; //Support UP TO 256-bit words
+    char bytes[MAX_WORD_SIZE];
     size_t size;
 } word_t;
 
 //MWG
 typedef struct {
-    word_t candidate_messages[64]; //Support UP TO 64 candidate messages
+    word_t candidate_messages[MAX_CANDIDATE_MSG]; 
     size_t size;
 } due_candidates_t;
 
 //MWG
 typedef struct {
-    word_t words[32]; //Support UP TO 32 words in a cacheline
+    word_t words[MAX_CACHELINE_WORDS];
     size_t blockpos;
     size_t size;
 } due_cacheline_t;

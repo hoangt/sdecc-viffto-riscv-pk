@@ -8,8 +8,8 @@
 user_due_trap_handler g_user_memory_due_trap_handler = NULL; //MWG
 due_candidates_t g_candidates; //MWG
 due_cacheline_t g_cacheline; //MWG
-char g_candidates_cstring[4096]; //MWG
-char g_recovery_cstring[512]; //MWG
+char g_candidates_cstring[G_CANDIDATES_CSTRING_SIZE]; //MWG
+char g_recovery_cstring[G_RECOVERY_CSTRING_SIZE]; //MWG
 
 static void handle_illegal_instruction(trapframe_t* tf)
 {
@@ -178,7 +178,7 @@ int getDUECandidateMessages(due_candidates_t* candidates) {
                  : "r" (&g_candidates_cstring));
 
     //Parse returned value
-    parse_sdecc_candidate_output(g_candidates_cstring, 4096, candidates);
+    parse_sdecc_candidate_output(g_candidates_cstring, G_CANDIDATES_CSTRING_SIZE, candidates);
     
     return 0; 
 }
@@ -261,7 +261,7 @@ void do_data_recovery(word_t* w) {
 //MWG
 int copy_word(word_t* dest, word_t* src) {
    if (dest && src) {
-       for (int i = 0; i < 32; i++)
+       for (int i = 0; i < MAX_WORD_SIZE; i++)
            dest->bytes[i] = src->bytes[i];
        dest->size = src->size;
 
@@ -274,7 +274,7 @@ int copy_word(word_t* dest, word_t* src) {
 //MWG
 int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src) {
     if (dest && src) {
-        for (int i = 0; i < 32; i++)
+        for (int i = 0; i < MAX_CACHELINE_WORDS; i++)
             copy_word(dest->words+i, src->words+i);
         dest->size = src->size;
         dest->blockpos = src->blockpos;
@@ -288,7 +288,7 @@ int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src) {
 //MWG
 int copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
     if (dest && src) {
-        for (int i = 0; i < 64; i++)
+        for (int i = 0; i < MAX_CANDIDATE_MSG; i++)
             copy_word(dest->candidate_messages+i, src->candidate_messages+i);
         dest->size = src->size;
         
@@ -301,7 +301,7 @@ int copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
 //MWG
 int copy_trapframe(trapframe_t* dest, trapframe_t* src) {
    if (dest && src) {
-       for (int i = 0; i < 32; i++)
+       for (int i = 0; i < NUM_GPR; i++)
            dest->gpr[i] = src->gpr[i];
        dest->status = src->status;
        dest->epc = src->epc;
@@ -318,7 +318,7 @@ int copy_trapframe(trapframe_t* dest, trapframe_t* src) {
 //MWG
 int copy_float_trapframe(float_trapframe_t* dest, float_trapframe_t* src) {
    if (dest && src) {
-       for (int i = 0; i < 32; i++)
+       for (int i = 0; i < NUM_FPR; i++)
            dest->fpr[i] = src->fpr[i];
        return 0;
    }
@@ -489,7 +489,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
 
 //MWG
 int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, unsigned rd, short float_regfile) {
-    if (!recovered_message || !load_value || !tf || rd < 0 || rd > 32)
+    if (!recovered_message || !load_value || !tf || rd < 0 || rd >= NUM_GPR || rd >= NUM_FPR)
         return -1;
  
     unsigned long val;
@@ -880,7 +880,7 @@ int set_float_trapframe(float_trapframe_t* float_tf) {
         return -1;
 
     unsigned long raw_value;
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < NUM_FPR; i++) {
         if (get_float_register(i, &raw_value))
             return -1;
         float_tf->fpr[i] = raw_value;
