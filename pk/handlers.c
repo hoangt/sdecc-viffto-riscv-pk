@@ -127,32 +127,37 @@ int default_memory_due_trap_handler(trapframe_t* tf) {
 //MWG
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
+       //Init
        word_t recovered_value;
        word_t recovered_load_value;
        recovered_value.size = 0;
        recovered_load_value.size = 0;
-       copy_word(&recovered_value, &(g_candidates.candidate_messages[0])); //Default: first candidate in list
-       
+       copy_word(&recovered_value, &(g_candidates.candidate_messages[0]));
+      
+       //Information about the DUE (not necessarily demand load)
        long badvaddr = tf->badvaddr;
        short msg_size = recovered_value.size;
-       short load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
-       short load_message_offset = badvaddr - (badvaddr & ~(msg_size-1));
-       short load_dest_reg = decode_rd(tf->insn);
-       short float_regfile = decode_regfile(tf->insn);
+      
+       //Information about the demand load
+       long demand_vaddr = decode_load_vaddr(tf->insn, tf);
+       short demand_dest_reg = decode_rd(tf->insn);
+       short demand_float_regfile = decode_regfile(tf->insn);
+       short demand_load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
+       short demand_load_message_offset = demand_vaddr - badvaddr;
 
        float_trapframe_t float_tf;
        if (set_float_trapframe(&float_tf))
           default_memory_due_trap_handler(tf);
        
        do_data_recovery(&recovered_value); //FIXME: inst recovery?
-       int retval = g_user_memory_due_trap_handler(tf, &float_tf, &g_candidates, &g_cacheline, &recovered_value, load_size, load_dest_reg, float_regfile, load_message_offset); //May clobber recovered_value
+       int retval = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset); //May clobber recovered_value
        void* ptr = (void*)(badvaddr);
        switch (retval) {
          case 0: //User handler indicated success, use their specified value
          case 1: //User handler wants us to use the generic recovery policy. Use our specified value. FIXME: what if user clobbered it but doesn't want to use it?
-             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, load_size, load_message_offset))
+             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset))
                  default_memory_due_trap_handler(tf);
-             if (writeback_recovered_message(&recovered_value, &recovered_load_value, tf, load_dest_reg, float_regfile))
+             if (writeback_recovered_message(&recovered_value, &recovered_load_value, tf, demand_dest_reg, demand_float_regfile))
                  default_memory_due_trap_handler(tf);
              tf->epc += 4;
              return;
@@ -322,14 +327,33 @@ int copy_float_trapframe(float_trapframe_t* dest, float_trapframe_t* src) {
 }
 
 //MWG
+long decode_load_vaddr(long insn, trapframe_t* tf) {
+   //RS1 + i_imm
+   //Applies to ld, lw, lb, flw, fld, etc.
+   long base = tf->gpr[decode_rs1(insn)];
+   return base + decode_i_imm(insn);
+}
+
+//MWG
+long decode_i_imm(long insn) {
+   long tmp = insn << 32; //Left shift so we can get immediate sign bit at long's MSB
+   return tmp >> (20+32); //Right shift to sign extend correctly
+}
+
+//MWG
+unsigned decode_rs1(long insn) {
+   return (insn >> 15) & ((1 << 5)-1); 
+}
+
+//MWG
 unsigned decode_rd(long insn) {
    return (insn >> 7) & ((1 << 5)-1); 
 }
 
 //MWG
 short decode_regfile(long insn) {
-    //FLW: 0x2007 match, FLD: 0x3007
-    return ((insn & MATCH_FLW) == MATCH_FLW || (insn & MATCH_FLD) == MATCH_FLD);
+   //FLW: 0x2007 match, FLD: 0x3007
+   return ((insn & MATCH_FLW) == MATCH_FLW || (insn & MATCH_FLD) == MATCH_FLD);
 }
 
 //MWG
@@ -504,7 +528,7 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
     }
 
     unsigned long msg_size = recovered_message->size; 
-    void* badvaddr_msg = (void*)((unsigned long)(tf->badvaddr) & (~(msg_size-1));
+    void* badvaddr_msg = (void*)((unsigned long)(tf->badvaddr) & (~(msg_size-1)));
     memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write message to main memory
     return 0;
 }
