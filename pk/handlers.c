@@ -119,55 +119,86 @@ void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr) {
 }
 
 //MWG
-int default_memory_due_trap_handler(trapframe_t* tf) {
-  panic("Default pk memory DUE trap handler: panic()");
-  return 0;
+int default_memory_due_trap_handler(trapframe_t* tf, int error_code, const char* expl) {
+  printk("-----------------------\n");
+  printk("PANIC: Unrecovered memory DUE, error code %d, reason: %s\n", error_code, expl);
+  dump_tf(tf);
+  printk("-----------------------\n");
+  panic("");
+  return 0; //Should never be reached
 }
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
   if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
+       int error_code = 0;
+
        //Init
-       word_t recovered_value;
+       word_t user_recovered_value;
+       word_t system_recovered_value;
        word_t recovered_load_value;
-       recovered_value.size = 0;
+       user_recovered_value.size = 0;
+       system_recovered_value.size = 0;
        recovered_load_value.size = 0;
-       copy_word(&recovered_value, &(g_candidates.candidate_messages[0]));
+       copy_word(&system_recovered_value, &(g_candidates.candidate_messages[0]));
       
        //Information about the DUE (not necessarily demand load)
        long badvaddr = tf->badvaddr;
-       short msg_size = recovered_value.size;
+       short msg_size = system_recovered_value.size;
       
        //Information about the demand load
        long demand_vaddr = decode_load_vaddr(tf->insn, tf);
        short demand_dest_reg = decode_rd(tf->insn);
        short demand_float_regfile = decode_regfile(tf->insn);
        short demand_load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
-       short demand_load_message_offset = demand_vaddr - badvaddr;
+       short demand_load_message_offset = demand_vaddr - badvaddr; //Positive offset: DUE came before demand load
+
+       if (demand_dest_reg < 0 || demand_dest_reg > NUM_GPR || demand_dest_reg > NUM_FPR)
+          default_memory_due_trap_handler(tf, -3, "pk decoded bad dest. reg from the insn");
+
+       if (demand_float_regfile != 0 && demand_float_regfile != 1)
+          default_memory_due_trap_handler(tf, -3, "pk decoded bad int/float type of insn load");
 
        float_trapframe_t float_tf;
-       if (set_float_trapframe(&float_tf))
-          default_memory_due_trap_handler(tf);
+       error_code = set_float_trapframe(&float_tf);
+       if (error_code)
+          default_memory_due_trap_handler(tf, error_code, "pk failed to set float trapframe");
        
-       do_data_recovery(&recovered_value); //FIXME: inst recovery?
+       do_data_recovery(&system_recovered_value); //FIXME: inst recovery?
+       copy_word(&user_recovered_value, &system_recovered_value);
 
-       int retval = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset); //May clobber recovered_value
-       switch (retval) {
+       error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset); //May clobber user_recovered_value
+       switch (error_code) {
          case 0: //User handler indicated success, use their specified value
-         case 1: //User handler wants us to use the generic recovery policy. Use our specified value. FIXME: what if user clobbered it but doesn't want to use it?
-             if (load_value_from_message(&recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset))
-                 default_memory_due_trap_handler(tf);
-             if (writeback_recovered_message(&recovered_value, &recovered_load_value, tf, demand_dest_reg, demand_float_regfile))
-                 default_memory_due_trap_handler(tf);
+             error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
+             if (error_code)
+                 default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
+             error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, demand_dest_reg, demand_float_regfile);
+             if (error_code)
+                 default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during user-specified recovery");
+             tf->epc += 4;
+             return;
+         case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
+             error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
+             if (error_code)
+                 default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
+             error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, demand_dest_reg, demand_float_regfile);
+             if (error_code)
+                 default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during system-specified recovery");
              tf->epc += 4;
              return;
          case -1: //User handler wants us to use default safe handler (crash)
-         default: //There was a problem in user handler
-             default_memory_due_trap_handler(tf); 
+             default_memory_due_trap_handler(tf, error_code, "user program opted to crash safely");
+             return;
+         case -2: //There was a problem in user handler
+             default_memory_due_trap_handler(tf, error_code, "problem in user recovery policy");
+             return;
+         default: //Any other problem
+             default_memory_due_trap_handler(tf, error_code, "unknown recovery problem"); 
              return;
        }
   }
-  default_memory_due_trap_handler(tf); 
+  default_memory_due_trap_handler(tf, -3, "this should not have happened"); 
 }
 
 //MWG
@@ -359,7 +390,7 @@ short decode_regfile(long insn) {
 //MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, unsigned load_size, int offset) {
     if (!recovered_message || !load_value || !cl)
-        return -1;
+        return -3;
     
     int msg_size = recovered_message->size; 
     int blockpos = cl->blockpos;
@@ -396,7 +427,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         int transferred = 0;
         int curr_blockpos = blockpos + offset/msg_size; //Negative offset
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -1;
+            return -3;
 
         while (curr_blockpos < blockpos) {
             memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, msg_size);
@@ -415,7 +446,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         int transferred = 0;
         int curr_blockpos = blockpos + offset/msg_size; //Negative offset
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -1;
+            return -3;
 
         while (curr_blockpos < blockpos) {
             memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, msg_size);
@@ -445,7 +476,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         int transferred = 0;
         int curr_blockpos = blockpos + offset/msg_size; //Negative offset
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -1;
+            return -3;
 
         while (remain > 0) {
             if (msg_size > remain) {
@@ -459,13 +490,13 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
             curr_blockpos++;
         }
 
-    //Load value starts after message and ends after it -- TODO (e.g., DUE on a cacheline word that was not the demand load)
-    } else if (offset > msg_size) {
+    //Load value starts after message and ends after it (e.g., DUE on a cacheline word that was not the demand load)
+    } else if (offset >= msg_size) {
         int remain = load_size;
         int transferred = 0;
         int curr_blockpos = blockpos + offset/msg_size; //positive offset
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -1;
+            return -3;
 
         while (remain > 0) {
             if (msg_size > remain) {
@@ -480,7 +511,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         }
     
     } else { //Something went wrong
-        return -1; 
+        return -3; 
     }
 
     load_value->size = load_size;
@@ -490,7 +521,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
 //MWG
 int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, unsigned rd, short float_regfile) {
     if (!recovered_message || !load_value || !tf || rd < 0 || rd >= NUM_GPR || rd >= NUM_FPR)
-        return -1;
+        return -3;
  
     unsigned long val;
     switch (load_value->size) {
@@ -515,13 +546,13 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
             val = *tmp4;
             break;
         default: 
-            return -1;
+            return -3;
     }
 
     if (float_regfile) {
         //Floating-point registers are not part of the trapframe, so I suppose we should just write the register directly.
         if (set_float_register(rd, val)) {
-            return -1;
+            return -3;
         }
     } else {
         tf->gpr[rd] = val; //Write load value to trapframe
@@ -696,13 +727,13 @@ int set_float_register(unsigned frd, unsigned long raw_value) {
                          : "r" (raw_value));
             return 0;
         default: //Bad register
-            return -1;
+            return -3;
     }
 }
 
 int get_float_register(unsigned frd, unsigned long* raw_value) {
     if (!raw_value)
-        return -1;
+        return -3;
 
     unsigned long tmp; 
     switch (frd) {
@@ -867,7 +898,7 @@ int get_float_register(unsigned frd, unsigned long* raw_value) {
                          :);
             break;
         default: //Bad register
-            return -1;
+            return -3;
     }
 
     *raw_value = tmp;
@@ -877,12 +908,12 @@ int get_float_register(unsigned frd, unsigned long* raw_value) {
 //MWG
 int set_float_trapframe(float_trapframe_t* float_tf) {
     if (!float_tf)
-        return -1;
+        return -3;
 
     unsigned long raw_value;
     for (int i = 0; i < NUM_FPR; i++) {
         if (get_float_register(i, &raw_value))
-            return -1;
+            return -3;
         float_tf->fpr[i] = raw_value;
     }
 

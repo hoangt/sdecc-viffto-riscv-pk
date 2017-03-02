@@ -107,7 +107,7 @@ typedef struct {
       
 typedef void (*trap_handler)(trapframe_t*); //MWG
 typedef int (*user_due_trap_handler)(trapframe_t*, float_trapframe_t*, long, due_candidates_t*, due_cacheline_t*, word_t*, short, short, short, short); //MWG
-int default_memory_due_trap_handler(trapframe_t*); //MWG
+int default_memory_due_trap_handler(trapframe_t*, int error_code, const char* expl); //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
 
 int getDUECandidateMessages(due_candidates_t* candidates); //MWG
