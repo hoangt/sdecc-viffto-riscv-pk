@@ -130,6 +130,7 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
 int get_float_register(unsigned frd, unsigned long* raw_value); //MWG
 int set_float_register(unsigned frd, unsigned long raw_value); //MWG
 int set_float_trapframe(float_trapframe_t* float_tf); //MWG
+void dump_word(word_t* w); //MWG
 
 typedef struct {
   int elf64;

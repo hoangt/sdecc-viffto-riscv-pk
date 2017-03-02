@@ -35,6 +35,17 @@ int vsnprintf(char* out, size_t n, const char* s, va_list vl)
           format = false;
           break;
         }
+        case 'X': //MWG
+        {
+          long num = va_arg(vl, int);
+          for(int i = 2*(sizeof(char))-1; i >= 0; i--) {
+            int d = (num >> (4*i)) & 0xF;
+            if (++pos < n) out[pos-1] = (d < 10 ? '0'+d : 'a'+d-10);
+          }
+          longarg = false;
+          format = false;
+          break;
+        }
         case 'd':
         {
           long num = longarg ? va_arg(vl, long) : va_arg(vl, int);

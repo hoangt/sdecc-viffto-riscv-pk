@@ -173,11 +173,20 @@ void handle_memory_due(trapframe_t* tf) {
        do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
        copy_word(&user_recovered_value, &system_recovered_value);
 
-       printk("badvaddr = %p, demand_vaddr = %p, demand_dest_reg = %d, demand_float_regfile = %d, demand_load_size = %d, demand_load_message_offset = %d, mem_type = %d, msg_size = %d\n", badvaddr, demand_vaddr, demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset, mem_type, msg_size);
+       //printk("badvaddr = %p, demand_vaddr = %p, demand_dest_reg = %d, demand_float_regfile = %d, demand_load_size = %d, demand_load_message_offset = %d, mem_type = %d, msg_size = %d\n", badvaddr, demand_vaddr, demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset, mem_type, msg_size); //TEMP
+       //printk("system_recovered_value = "); //TEMP
+       //dump_word(&system_recovered_value); //TEMP
+       //printk("\n"); //TEMP
 
        error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
        switch (error_code) {
          case 0: //User handler indicated success, use their specified value
+             //printk("user_recovered_value = "); //TEMP
+             //dump_word(&user_recovered_value); //TEMP
+             //printk("\n"); //TEMP
+             //printk("user recovered_load_value = "); //TEMP
+             //dump_word(&recovered_load_value); //TEMP
+             //printk("\n"); //TEMP
              error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
              if (error_code)
                  default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
@@ -189,6 +198,12 @@ void handle_memory_due(trapframe_t* tf) {
              return;
          case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
              error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
+             //printk("system_recovered_value = "); //TEMP
+             //dump_word(&user_recovered_value); //TEMP
+             //printk("\n"); //TEMP
+             //printk("system recovered_load_value = "); //TEMP
+             //dump_word(&recovered_load_value); //TEMP
+             //printk("\n"); //TEMP
              if (error_code)
                  default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
              error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
@@ -436,7 +451,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     } else if (offset < 0 && offset+load_size > 0 && offset+load_size <= msg_size) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size; //Negative offset
+        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -3;
 
@@ -455,7 +470,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     } else if (offset < 0 && offset+load_size > msg_size) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size; //Negative offset
+        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -3;
 
@@ -482,10 +497,10 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         }
 
     //Load value starts before message and ends before it (e.g., DUE on a cacheline word that was not the demand load)
-    } else if (offset+load_size < 0) {
+    } else if (offset+load_size <= 0) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size; //Negative offset
+        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -3;
 
@@ -505,7 +520,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     } else if (offset >= msg_size) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size; //positive offset
+        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -3;
 
@@ -534,33 +549,33 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
     if (!recovered_message || !load_value || !tf || (mem_type == 0 && (rd < 0 || rd >= NUM_GPR || rd >= NUM_FPR || float_regfile < 0 || float_regfile > 1)))
         return -3;
  
-    unsigned long val;
-    switch (load_value->size) {
-        case 1:
-            ; //shut up compiler
-            unsigned char* tmp = (unsigned char*)(load_value->bytes);
-            val = (unsigned long)(*tmp);
-            break;
-        case 2:
-            ; //shut up compiler
-            unsigned short* tmp2 = (unsigned short*)(load_value->bytes);
-            val = (unsigned long)(*tmp2);
-            break;
-        case 4:
-            ; //shut up compiler
-            unsigned* tmp3 = (unsigned*)(load_value->bytes);
-            val = (unsigned long)(*tmp3);
-            break;
-        case 8:
-            ; //shut up compiler
-            unsigned long* tmp4 = (unsigned long*)(load_value->bytes);
-            val = *tmp4;
-            break;
-        default: 
-            return -3;
-    }
-
     if (mem_type == 0) { //data-only: write to changes to register file/trapframe. inst should only writeback to memory
+        unsigned long val;
+        switch (load_value->size) {
+            case 1:
+                ; //shut up compiler
+                unsigned char* tmp = (unsigned char*)(load_value->bytes);
+                val = (unsigned long)(*tmp);
+                break;
+            case 2:
+                ; //shut up compiler
+                unsigned short* tmp2 = (unsigned short*)(load_value->bytes);
+                val = (unsigned long)(*tmp2);
+                break;
+            case 4:
+                ; //shut up compiler
+                unsigned* tmp3 = (unsigned*)(load_value->bytes);
+                val = (unsigned long)(*tmp3);
+                break;
+            case 8:
+                ; //shut up compiler
+                unsigned long* tmp4 = (unsigned long*)(load_value->bytes);
+                val = *tmp4;
+                break;
+            default: 
+                return -3;
+        }
+
         if (float_regfile) {
             //Floating-point registers are not part of the trapframe, so I suppose we should just write the register directly.
             if (set_float_register(rd, val)) {
@@ -931,4 +946,11 @@ int set_float_trapframe(float_trapframe_t* float_tf) {
     }
 
     return 0;
+}
+
+//MWG
+void dump_word(word_t* w) {
+   printk("0x");
+   for (int i = 0; i < w->size; i++)
+       printk("%X", w->bytes[i]);
 }
