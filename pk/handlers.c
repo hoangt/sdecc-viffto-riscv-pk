@@ -141,51 +141,61 @@ void handle_memory_due(trapframe_t* tf) {
        system_recovered_value.size = 0;
        recovered_load_value.size = 0;
        copy_word(&system_recovered_value, &(g_candidates.candidate_messages[0]));
-      
-       //Information about the DUE (not necessarily demand load)
-       long badvaddr = tf->badvaddr;
        short msg_size = system_recovered_value.size;
-      
-       //Information about the demand load
-       long demand_vaddr = decode_load_vaddr(tf->insn, tf);
-       short demand_dest_reg = decode_rd(tf->insn);
-       short demand_float_regfile = decode_regfile(tf->insn);
+       long badvaddr = tf->badvaddr;
+       long demand_vaddr = 0;
+       short demand_dest_reg = -1;
+       short demand_float_regfile = -1;
+       short mem_type = (short)(read_csr(0x9)); //CSR_PENALTY_BOX_MEM_TYPE
        short demand_load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
+       if (mem_type == 0) { //data
+           demand_vaddr = decode_load_vaddr(tf->insn, tf);
+           demand_dest_reg = decode_rd(tf->insn);
+           demand_float_regfile = decode_regfile(tf->insn);
+       } else if (mem_type == 1) { //inst
+           demand_vaddr = tf->epc;
+       } else
+          default_memory_due_trap_handler(tf, -3, "pk could not determine whether victim was data or inst memory");
+       
        short demand_load_message_offset = demand_vaddr - badvaddr; //Positive offset: DUE came before demand load
 
-       if (demand_dest_reg < 0 || demand_dest_reg > NUM_GPR || demand_dest_reg > NUM_FPR)
+       if (mem_type == 0 && (demand_dest_reg < 0 || demand_dest_reg > NUM_GPR || demand_dest_reg > NUM_FPR))
           default_memory_due_trap_handler(tf, -3, "pk decoded bad dest. reg from the insn");
 
-       if (demand_float_regfile != 0 && demand_float_regfile != 1)
+       if (mem_type == 0 && (demand_float_regfile != 0 && demand_float_regfile != 1))
           default_memory_due_trap_handler(tf, -3, "pk decoded bad int/float type of insn load");
 
        float_trapframe_t float_tf;
        error_code = set_float_trapframe(&float_tf);
        if (error_code)
           default_memory_due_trap_handler(tf, error_code, "pk failed to set float trapframe");
-       
-       do_data_recovery(&system_recovered_value); //FIXME: inst recovery?
+      
+       do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
        copy_word(&user_recovered_value, &system_recovered_value);
 
-       error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset); //May clobber user_recovered_value
+       printk("badvaddr = %p, demand_vaddr = %p, demand_dest_reg = %d, demand_float_regfile = %d, demand_load_size = %d, demand_load_message_offset = %d, mem_type = %d, msg_size = %d\n", badvaddr, demand_vaddr, demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset, mem_type, msg_size);
+
+       error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
        switch (error_code) {
          case 0: //User handler indicated success, use their specified value
              error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
              if (error_code)
                  default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
-             error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, demand_dest_reg, demand_float_regfile);
+             error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
              if (error_code)
                  default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during user-specified recovery");
-             tf->epc += 4;
+             if (mem_type == 0) //Only advance PC if the error was data mem, otherwise we want to re-fetch.
+                 tf->epc += 4;
              return;
          case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
              error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
              if (error_code)
                  default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
-             error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, demand_dest_reg, demand_float_regfile);
+             error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
              if (error_code)
                  default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during system-specified recovery");
-             tf->epc += 4;
+             if (mem_type == 0) //Only advance PC if the error was data mem, otherwise we want to re-fetch.
+                 tf->epc += 4;
              return;
          case -1: //User handler wants us to use default safe handler (crash)
              default_memory_due_trap_handler(tf, error_code, "user program opted to crash safely");
@@ -263,9 +273,9 @@ void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidate
 }
 
 //MWG
-void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w) {
+void parse_sdecc_recovery_output(const char* script_stdout, word_t* w) {
       int k = 0;
-      unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
+      unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE, FIXME
       // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
       do {
           for (size_t i = 0; i < wordsize; i++) {
@@ -280,14 +290,15 @@ void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w) {
 }
 
 //MWG
-void do_data_recovery(word_t* w) {
+void do_system_recovery(word_t* w) {
     //Magical Spike hook to recover, so we don't have to re-implement in C
     asm volatile("custom3 0,%0,%1,0;"
                  : 
                  : "r" (&g_recovery_cstring), "r" (&g_candidates_cstring));
 
-    parse_sdecc_data_recovery_output(g_recovery_cstring, w);
+    parse_sdecc_recovery_output(g_recovery_cstring, w);
 }
+
 
 //MWG
 int copy_word(word_t* dest, word_t* src) {
@@ -519,8 +530,8 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
 }
 
 //MWG
-int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, unsigned rd, short float_regfile) {
-    if (!recovered_message || !load_value || !tf || rd < 0 || rd >= NUM_GPR || rd >= NUM_FPR)
+int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, short mem_type, unsigned rd, short float_regfile) {
+    if (!recovered_message || !load_value || !tf || (mem_type == 0 && (rd < 0 || rd >= NUM_GPR || rd >= NUM_FPR || float_regfile < 0 || float_regfile > 1)))
         return -3;
  
     unsigned long val;
@@ -549,13 +560,15 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
             return -3;
     }
 
-    if (float_regfile) {
-        //Floating-point registers are not part of the trapframe, so I suppose we should just write the register directly.
-        if (set_float_register(rd, val)) {
-            return -3;
+    if (mem_type == 0) { //data-only: write to changes to register file/trapframe. inst should only writeback to memory
+        if (float_regfile) {
+            //Floating-point registers are not part of the trapframe, so I suppose we should just write the register directly.
+            if (set_float_register(rd, val)) {
+                return -3;
+            }
+        } else {
+            tf->gpr[rd] = val; //Write load value to trapframe
         }
-    } else {
-        tf->gpr[rd] = val; //Write load value to trapframe
     }
 
     unsigned long msg_size = recovered_message->size; 

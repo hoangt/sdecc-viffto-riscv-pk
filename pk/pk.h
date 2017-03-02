@@ -106,7 +106,7 @@ typedef struct {
 } due_cacheline_t;
       
 typedef void (*trap_handler)(trapframe_t*); //MWG
-typedef int (*user_due_trap_handler)(trapframe_t*, float_trapframe_t*, long, due_candidates_t*, due_cacheline_t*, word_t*, short, short, short, short); //MWG
+typedef int (*user_due_trap_handler)(trapframe_t*, float_trapframe_t*, long, due_candidates_t*, due_cacheline_t*, word_t*, short, short, short, short, short); //MWG
 int default_memory_due_trap_handler(trapframe_t*, int error_code, const char* expl); //MWG
 void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MWG
 
@@ -114,7 +114,7 @@ int getDUECandidateMessages(due_candidates_t* candidates); //MWG
 void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidates_t* candidates); //MWG
 void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w); //MWG
 int getDUECacheline(due_cacheline_t* cacheline); //MWG
-void do_data_recovery(word_t* w); //MWG
+void do_system_recovery(word_t* w); //MWG
 int copy_word(word_t* dest, word_t* src); //MWG
 int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
 int copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
@@ -126,7 +126,7 @@ unsigned decode_rs1(long insn); //MWG
 unsigned decode_rd(long insn); //MWG
 short decode_regfile(long insn); //MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, unsigned load_size, int offset); //MWG
-int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, unsigned rd, short float_regfile); //MWG 
+int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, short mem_type, unsigned rd, short float_regfile); //MWG 
 int get_float_register(unsigned frd, unsigned long* raw_value); //MWG
 int set_float_register(unsigned frd, unsigned long raw_value); //MWG
 int set_float_trapframe(float_trapframe_t* float_tf); //MWG
