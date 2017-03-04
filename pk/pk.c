@@ -4,6 +4,7 @@
 
 void run_loaded_program(struct mainvars* args)
 {
+  printk("pk: Starting user program shortly\n"); //MWG
   if (current.is_supervisor)
     panic("pk can't run kernel binaries; try using bbl instead");
 
@@ -95,7 +96,6 @@ void run_loaded_program(struct mainvars* args)
   init_tf(&tf, current.entry, stack_top, current.elf64);
   __clear_cache(0, 0);
   write_csr(sscratch, kernel_stack_top);
-  printk("pk: Starting user program NOW\n"); //MWG
   start_user(&tf);
 }
 
