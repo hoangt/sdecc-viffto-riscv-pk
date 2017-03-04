@@ -95,6 +95,7 @@ void run_loaded_program(struct mainvars* args)
   init_tf(&tf, current.entry, stack_top, current.elf64);
   __clear_cache(0, 0);
   write_csr(sscratch, kernel_stack_top);
+  printk("pk: Starting user program NOW\n"); //MWG
   start_user(&tf);
 }
 
