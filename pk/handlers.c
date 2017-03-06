@@ -120,11 +120,8 @@ void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr) {
 
 //MWG
 int default_memory_due_trap_handler(trapframe_t* tf, int error_code, const char* expl) {
-  printk("-----------------------\n");
-  printk("PANIC: Unrecovered memory DUE, error code %d, reason: %s\n", error_code, expl);
   dump_tf(tf);
-  printk("-----------------------\n");
-  panic("");
+  panic("Unrecovered memory DUE, error code %d, reason: %s\n", error_code, expl);
   return 0; //Should never be reached
 }
 

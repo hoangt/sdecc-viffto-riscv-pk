@@ -148,6 +148,7 @@ void do_panic(const char* s, ...)
   va_list vl;
   va_start(vl, s);
 
+  printk("PANIC: ");
   vprintk(s, vl);
   die(-1);
 
