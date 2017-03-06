@@ -127,106 +127,113 @@ int default_memory_due_trap_handler(trapframe_t* tf, int error_code, const char*
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
-  if (g_user_memory_due_trap_handler && !getDUECandidateMessages(&g_candidates) && !getDUECacheline(&g_cacheline)) {
-       int error_code = 0;
-
-       //Init
-       word_t user_recovered_value;
-       word_t system_recovered_value;
-       word_t recovered_load_value;
-       user_recovered_value.size = 0;
-       system_recovered_value.size = 0;
-       recovered_load_value.size = 0;
-       copy_word(&system_recovered_value, &(g_candidates.candidate_messages[0]));
-       short msg_size = system_recovered_value.size;
-       long badvaddr = tf->badvaddr;
-       long demand_vaddr = 0;
-       short demand_dest_reg = -1;
-       short demand_float_regfile = -1;
-       short mem_type = (short)(read_csr(0x9)); //CSR_PENALTY_BOX_MEM_TYPE
-       short demand_load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
-       if (mem_type == 0) { //data
-           demand_vaddr = decode_load_vaddr(tf->insn, tf);
-           demand_dest_reg = decode_rd(tf->insn);
-           demand_float_regfile = decode_regfile(tf->insn);
-       } else if (mem_type == 1) { //inst
-           demand_vaddr = tf->epc;
-       } else
-          default_memory_due_trap_handler(tf, -4, "pk could not determine whether victim was data or inst memory");
-       
-       short demand_load_message_offset = demand_vaddr - badvaddr; //Positive offset: DUE came before demand load
-
-       if (mem_type == 0 && (demand_dest_reg < 0 || demand_dest_reg > NUM_GPR || demand_dest_reg > NUM_FPR))
-          default_memory_due_trap_handler(tf, -4, "pk decoded bad dest. reg from the insn");
-
-       if (mem_type == 0 && (demand_float_regfile != 0 && demand_float_regfile != 1))
-          default_memory_due_trap_handler(tf, -4, "pk decoded bad int/float type of insn load");
-
-       float_trapframe_t float_tf;
-       error_code = set_float_trapframe(&float_tf);
-       if (error_code)
-          default_memory_due_trap_handler(tf, error_code, "pk failed to set float trapframe");
-      
-       do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
-       copy_word(&user_recovered_value, &system_recovered_value);
-
-       //printk("badvaddr = %p, demand_vaddr = %p, demand_dest_reg = %d, demand_float_regfile = %d, demand_load_size = %d, demand_load_message_offset = %d, mem_type = %d, msg_size = %d\n", badvaddr, demand_vaddr, demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset, mem_type, msg_size); //TEMP
-       //printk("system_recovered_value = "); //TEMP
-       //dump_word(&system_recovered_value); //TEMP
-       //printk("\n"); //TEMP
-
-       error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
-       switch (error_code) {
-         case 0: //User handler indicated success, use their specified value
-             //printk("user_recovered_value = "); //TEMP
-             //dump_word(&user_recovered_value); //TEMP
-             //printk("\n"); //TEMP
-             //printk("user recovered_load_value = "); //TEMP
-             //dump_word(&recovered_load_value); //TEMP
-             //printk("\n"); //TEMP
-             error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
-             if (error_code)
-                 default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
-             error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
-             if (error_code)
-                 default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during user-specified recovery");
-             if (mem_type == 0) //Only advance PC if the error was data mem, otherwise we want to re-fetch.
-                 tf->epc += 4;
-             return;
-         case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
-             error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
-             //printk("system_recovered_value = "); //TEMP
-             //dump_word(&user_recovered_value); //TEMP
-             //printk("\n"); //TEMP
-             //printk("system recovered_load_value = "); //TEMP
-             //dump_word(&recovered_load_value); //TEMP
-             //printk("\n"); //TEMP
-             if (error_code)
-                 default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
-             error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
-             if (error_code)
-                 default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during system-specified recovery");
-             if (mem_type == 0) //Only advance PC if the error was data mem, otherwise we want to re-fetch.
-                 tf->epc += 4;
-             return;
-         case -1: //User handler wants us to use default safe handler (crash)
-             default_memory_due_trap_handler(tf, error_code, "user program opted to crash safely");
-             return;
-         case -2: //User handler not registered or DUE was out-of-bounds
-             default_memory_due_trap_handler(tf, error_code, "DUE handler not registered or DUE out of bounds");
-             return;
-         case -3: //User handler problem
-             default_memory_due_trap_handler(tf, error_code, "user handler problem");
-             return;
-         case -4: //Kernel handler problem
-             default_memory_due_trap_handler(tf, error_code, "kernel handler problem");
-             return;
-         default: //Any other problem
-             default_memory_due_trap_handler(tf, error_code, "this should not have happened"); 
-             return;
-       }
+    //FIXME: if I compile pk with -O4 instead of -O2 nothing works correctly.
+  if (getDUECandidateMessages(&g_candidates) != 0 || getDUECacheline(&g_cacheline) != 0) {
+      default_memory_due_trap_handler(tf, -4, "kernel handler failed to get DUE candidates and/or cacheline SI"); 
+      return;
   }
-  default_memory_due_trap_handler(tf, -5, "this should not have happened"); 
+  if (g_user_memory_due_trap_handler == NULL) {
+      default_memory_due_trap_handler(tf, -4, "no registered DUE handler"); 
+      return;
+  }
+   int error_code = 0;
+
+   //Init
+   word_t user_recovered_value;
+   word_t system_recovered_value;
+   word_t recovered_load_value;
+   user_recovered_value.size = 0;
+   system_recovered_value.size = 0;
+   recovered_load_value.size = 0;
+   copy_word(&system_recovered_value, &(g_candidates.candidate_messages[0]));
+   short msg_size = system_recovered_value.size;
+   long badvaddr = tf->badvaddr;
+   long demand_vaddr = 0;
+   short demand_dest_reg = -1;
+   short demand_float_regfile = -1;
+   short mem_type = (short)(read_csr(0x9)); //CSR_PENALTY_BOX_MEM_TYPE
+   short demand_load_size = (short)(read_csr(0x4)); //CSR_PENALTY_BOX_LOAD_SIZE
+   if (mem_type == 0) { //data
+       demand_vaddr = decode_load_vaddr(tf->insn, tf);
+       demand_dest_reg = decode_rd(tf->insn);
+       demand_float_regfile = decode_regfile(tf->insn);
+   } else if (mem_type == 1) { //inst
+       demand_vaddr = tf->epc;
+   } else
+      default_memory_due_trap_handler(tf, -4, "pk could not determine whether victim was data or inst memory");
+   
+   short demand_load_message_offset = demand_vaddr - badvaddr; //Positive offset: DUE came before demand load
+
+   if (mem_type == 0 && (demand_dest_reg < 0 || demand_dest_reg > NUM_GPR || demand_dest_reg > NUM_FPR))
+      default_memory_due_trap_handler(tf, -4, "pk decoded bad dest. reg from the insn");
+
+   if (mem_type == 0 && (demand_float_regfile != 0 && demand_float_regfile != 1))
+      default_memory_due_trap_handler(tf, -4, "pk decoded bad int/float type of insn load");
+
+   float_trapframe_t float_tf;
+   error_code = set_float_trapframe(&float_tf);
+   if (error_code)
+      default_memory_due_trap_handler(tf, error_code, "pk failed to set float trapframe");
+  
+   do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
+   copy_word(&user_recovered_value, &system_recovered_value);
+
+   //printk("badvaddr = %p, demand_vaddr = %p, demand_dest_reg = %d, demand_float_regfile = %d, demand_load_size = %d, demand_load_message_offset = %d, mem_type = %d, msg_size = %d\n", badvaddr, demand_vaddr, demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset, mem_type, msg_size); //TEMP
+   //printk("system_recovered_value = "); //TEMP
+   //dump_word(&system_recovered_value); //TEMP
+   //printk("\n"); //TEMP
+
+   error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
+   switch (error_code) {
+     case 0: //User handler indicated success, use their specified value
+         //printk("user_recovered_value = "); //TEMP
+         //dump_word(&user_recovered_value); //TEMP
+         //printk("\n"); //TEMP
+         //printk("user recovered_load_value = "); //TEMP
+         //dump_word(&recovered_load_value); //TEMP
+         //printk("\n"); //TEMP
+         error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
+         if (error_code)
+             default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
+         error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
+         if (error_code)
+             default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during user-specified recovery");
+         if (mem_type == 0) //Only advance PC if the error was data mem, otherwise we want to re-fetch.
+             tf->epc += 4;
+         return;
+     case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
+         error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
+         //printk("system_recovered_value = "); //TEMP
+         //dump_word(&user_recovered_value); //TEMP
+         //printk("\n"); //TEMP
+         //printk("system recovered_load_value = "); //TEMP
+         //dump_word(&recovered_load_value); //TEMP
+         //printk("\n"); //TEMP
+         if (error_code)
+             default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
+         error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
+         if (error_code)
+             default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during system-specified recovery");
+         if (mem_type == 0) //Only advance PC if the error was data mem, otherwise we want to re-fetch.
+             tf->epc += 4;
+         return;
+     case -1: //User handler wants us to use default safe handler (crash)
+         default_memory_due_trap_handler(tf, error_code, "user program opted to crash safely");
+         return;
+     case -2: //User handler not registered or DUE was out-of-bounds
+         default_memory_due_trap_handler(tf, error_code, "user DUE handler not registered or DUE out of user-defined bounds");
+         return;
+     case -3: //User handler problem
+         default_memory_due_trap_handler(tf, error_code, "user handler problem");
+         return;
+     case -4: //Kernel handler problem
+         default_memory_due_trap_handler(tf, error_code, "kernel handler problem");
+         return;
+     default: //Any other problem
+         default_memory_due_trap_handler(tf, error_code, "unknown handler problem"); 
+         return;
+   }
+  default_memory_due_trap_handler(tf, -4, "this should not ever have happened"); 
 }
 
 //MWG
