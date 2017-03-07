@@ -162,7 +162,7 @@ void handle_memory_due(trapframe_t* tf) {
    } else
       default_memory_due_trap_handler(tf, -4, "pk could not determine whether victim was data or inst memory");
    
-   short demand_load_message_offset = demand_vaddr - badvaddr; //Positive offset: DUE came before demand load
+   short demand_load_message_offset = (short)((long)(demand_vaddr - badvaddr)); //Positive offset: DUE came before demand load
 
    if (mem_type == 0 && (demand_dest_reg < 0 || demand_dest_reg > NUM_GPR || demand_dest_reg > NUM_FPR))
       default_memory_due_trap_handler(tf, -4, "pk decoded bad dest. reg from the insn");
@@ -448,6 +448,7 @@ short decode_regfile(long insn) {
 }
 
 //MWG
+//FIXME: CHECK VERY CAREFULLY -- load size gets all messed up and causes extreme buffer overflows!!!!
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, unsigned load_size, int offset) {
     if (!recovered_message || !load_value || !cl)
         return -4;
