@@ -598,21 +598,25 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
                 ; //shut up compiler
                 unsigned char* tmp = (unsigned char*)(load_value->bytes);
                 val = (unsigned long)(*tmp);
+                printk("tmp (1 byte): %x, val (8 bytes): %lx\n", *tmp, val); //TEMP 
                 break;
             case 2:
                 ; //shut up compiler
                 unsigned short* tmp2 = (unsigned short*)(load_value->bytes);
                 val = (unsigned long)(*tmp2);
+                printk("tmp2 (2 byte): %x, val (8 bytes): %lx\n", *tmp2, val); //TEMP 
                 break;
             case 4:
                 ; //shut up compiler
                 unsigned* tmp3 = (unsigned*)(load_value->bytes);
                 val = (unsigned long)(*tmp3);
+                printk("tmp3 (4 byte): %x, val (8 bytes): %lx\n", *tmp3, val); //TEMP 
                 break;
             case 8:
                 ; //shut up compiler
                 unsigned long* tmp4 = (unsigned long*)(load_value->bytes);
                 val = *tmp4;
+                printk("tmp4 (8 byte): %lx, val (8 bytes): %lx\n", *tmp4, val); //TEMP 
                 break;
             default: 
                 return -4;
@@ -630,6 +634,7 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
 
     unsigned long msg_size = recovered_message->size; 
     void* badvaddr_msg = (void*)((unsigned long)(tf->badvaddr) & (~(msg_size-1)));
+    printk("badvaddr_msg = %p, badvaddr = %lx, badvaddr casted = %lx\n", badvaddr_msg, tf->badvaddr, (unsigned long)(tf->badvaddr)); //TEMP
     memcpy(badvaddr_msg, recovered_message->bytes, msg_size); //Write message to main memory
     return 0;
 }
