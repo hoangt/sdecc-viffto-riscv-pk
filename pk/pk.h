@@ -132,7 +132,7 @@ int get_float_register(unsigned frd, unsigned long* raw_value); //MWG
 int set_float_register(unsigned frd, unsigned long raw_value); //MWG
 int set_float_trapframe(float_trapframe_t* float_tf); //MWG
 void dump_word(word_t* w); //MWG
-int compare_recovery(word_t* recovered_value, word_t* cheat_msg); //MWG
+int compare_recovery(word_t* recovered_value, word_t* cheat_msg, word_t* recovered_load_value, word_t* cheat_load_value, short demand_load_message_offset); //MWG
 
 typedef struct {
   int elf64;

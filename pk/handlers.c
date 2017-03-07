@@ -178,36 +178,31 @@ void handle_memory_due(trapframe_t* tf) {
    do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
    copy_word(&user_recovered_value, &system_recovered_value);
 
-   //printk("badvaddr = %p, demand_vaddr = %p, demand_dest_reg = %d, demand_float_regfile = %d, demand_load_size = %d, demand_load_message_offset = %d, mem_type = %d, msg_size = %d\n", badvaddr, demand_vaddr, demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset, mem_type, msg_size); //TEMP
-   //printk("system_recovered_value = "); //TEMP
-   //dump_word(&system_recovered_value); //TEMP
-   //printk("\n"); //TEMP
-
    error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
 
    //For book-keeping only!!
    word_t cheat_msg;
+   word_t cheat_load_value;
    if (getDUECheatMessage(&cheat_msg) != 0) {
         default_memory_due_trap_handler(tf, -4, "pk failed to load cheat-recovery message for bookkeeping from HW");
         return;
    }
+   error_code = load_value_from_message(&cheat_msg, &cheat_load_value, &g_cacheline, demand_load_size, demand_load_message_offset); //For bookkeeping only
+   if (error_code) {
+       default_memory_due_trap_handler(tf, error_code, "pk failed to load cheat value from cheat message");
+       return;
+   }
 
    switch (error_code) {
      case 0: //User handler indicated success, use their specified value
-         //printk("user_recovered_value = "); //TEMP
-         //dump_word(&user_recovered_value); //TEMP
-         //printk("\n"); //TEMP
-         //printk("user recovered_load_value = "); //TEMP
-         //dump_word(&recovered_load_value); //TEMP
-         //printk("\n"); //TEMP
          error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);    
-
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
-
-         error_code = compare_recovery(&user_recovered_value, &cheat_msg); //For bookkeeping only
+         
+         error_code = compare_recovery(&user_recovered_value, &cheat_msg, &recovered_load_value, &cheat_load_value, demand_load_message_offset); //For bookkeeping only
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
+
          error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during user-specified recovery");
@@ -216,16 +211,10 @@ void handle_memory_due(trapframe_t* tf) {
          return;
      case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
          error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
-         //printk("system_recovered_value = "); //TEMP
-         //dump_word(&user_recovered_value); //TEMP
-         //printk("\n"); //TEMP
-         //printk("system recovered_load_value = "); //TEMP
-         //dump_word(&recovered_load_value); //TEMP
-         //printk("\n"); //TEMP
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
          
-         error_code = compare_recovery(&system_recovered_value, &cheat_msg); //For bookkeeping only
+         error_code = compare_recovery(&system_recovered_value, &cheat_msg, &recovered_load_value, &cheat_load_value, demand_load_message_offset); //For bookkeeping only
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
          
@@ -1001,34 +990,72 @@ void dump_word(word_t* w) {
 }
 
 //MWG
-int compare_recovery(word_t* recovered_value, word_t* cheat_msg) {
-    if (!recovered_value || !cheat_msg)
+int compare_recovery(word_t* recovered_value, word_t* cheat_msg, word_t* recovered_load_value, word_t* cheat_load_value, short demand_load_message_offset) {
+    if (!recovered_value || !cheat_msg || !recovered_load_value || !cheat_load_value)
         return -4;
 
-    if (recovered_value->size != cheat_msg->size) {
-        printk("pk: DUE RECOVERY: SIZE MISMATCH\n");
-        return -5;
-    }
+    if (recovered_value->size != cheat_msg->size || recovered_load_value->size != cheat_load_value->size)
+        return -4;
+
+    short correct = 1;
+    short mismatch = 0;
+    short overlap = 0;
+    int retval = 0;
+
+    short starts_within = (demand_load_message_offset >= 0 && demand_load_message_offset < cheat_msg->size);
+    short ends_within = (demand_load_message_offset + cheat_load_value->size > 0 && demand_load_message_offset + cheat_load_value->size <= cheat_msg->size);
+    short completely_covers = (demand_load_message_offset < 0 && demand_load_message_offset + cheat_load_value->size > cheat_msg->size);
+    if (starts_within || ends_within || completely_covers)
+        overlap = 1;
 
     for (int i = 0; i < cheat_msg->size; i++) {
         if (recovered_value->bytes[i] != cheat_msg->bytes[i]) {
-            printk("pk: DUE RECOVERY: MCE\n");
-            printk("pk: Correct: ");
-            dump_word(cheat_msg);
-            printk("\n");
-            printk("pk: Chosen:  ");
-            dump_word(recovered_value);
-            printk("\n");
-            return 0;
+            correct = 0;
+            break;
         }
     }
-    
-    printk("pk: DUE RECOVERY: CORRECT\n");
-    printk("pk: Correct: ");
+    if (correct || !overlap) {
+        for (int i = 0; i < cheat_load_value->size; i++) {
+            if (recovered_load_value->bytes[i] != cheat_load_value->bytes[i]) {
+                mismatch = 1;
+                break;
+            }
+        }
+    }
+
+    if (correct) {
+        if (!mismatch) {
+            printk("pk: DUE RECOVERY: CORRECT\n");
+            retval = 0;
+        } else {
+            printk("pk: DUE RECOVERY: MISMATCH BUG\n");
+            retval = -4;
+        }
+    } else {
+        if (overlap && mismatch) {
+            printk("pk: DUE RECOVERY: MCE\n");
+            retval = 0;
+        } else if (!overlap && mismatch) {
+            printk("pk: DUE RECOVERY: MISMATCH BUG\n");
+            retval = -4;
+        } else {
+            printk("pk: DUE RECOVERY: MCE\n"); //FIXME: partial overlap case, can be either MCE or MISMATCH BUG here.
+            retval = 0;
+        }
+    }
+
+    printk("pk: Correct msg: ");
     dump_word(cheat_msg);
     printk("\n");
-    printk("pk: Chosen:  ");
+    printk("pk: Chosen msg:  ");
     dump_word(recovered_value);
     printk("\n");
-    return 0;  
+    printk("pk: Correct load value: ");
+    dump_word(cheat_load_value);
+    printk("\n");
+    printk("pk: Chosen load value:  ");
+    dump_word(recovered_load_value);
+    printk("\n");
+
+    return retval;
 }
