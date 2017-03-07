@@ -184,6 +184,14 @@ void handle_memory_due(trapframe_t* tf) {
    //printk("\n"); //TEMP
 
    error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
+
+   //For book-keeping only!!
+   word_t cheat_msg;
+   if (getDUECheatMessage(&cheat_msg) != 0) {
+        default_memory_due_trap_handler(tf, -4, "pk failed to load cheat-recovery message for bookkeeping from HW");
+        return;
+   }
+
    switch (error_code) {
      case 0: //User handler indicated success, use their specified value
          //printk("user_recovered_value = "); //TEMP
@@ -192,9 +200,14 @@ void handle_memory_due(trapframe_t* tf) {
          //printk("user recovered_load_value = "); //TEMP
          //dump_word(&recovered_load_value); //TEMP
          //printk("\n"); //TEMP
-         error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
+         error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);    
+
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
+
+         error_code = compare_recovery(&user_recovered_value, &cheat_msg); //For bookkeeping only
+         if (error_code)
+             default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
          error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during user-specified recovery");
@@ -211,6 +224,11 @@ void handle_memory_due(trapframe_t* tf) {
          //printk("\n"); //TEMP
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
+         
+         error_code = compare_recovery(&system_recovered_value, &cheat_msg); //For bookkeeping only
+         if (error_code)
+             default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
+         
          error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during system-specified recovery");
@@ -270,6 +288,23 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     }
     cacheline->blockpos = blockpos;
     cacheline->size = words_per_block;
+
+    return 0; 
+}
+
+//MWG
+int getDUECheatMessage(word_t* cheat_msg) {
+    if (!cheat_msg)
+        return -4;
+
+    unsigned long wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
+    unsigned long victim_msg[wordsize/sizeof(unsigned long)];
+
+    for (int i = 0; i < wordsize/sizeof(unsigned long); i++)
+        victim_msg[i] = read_csr(0xb); //CSR_PENALTY_BOX_CHEAT_MSG. Hardware will give us a different 64-bit chunk every iteration. FIXME: If we over-read, then something bad may happen in HW.
+
+    memcpy(cheat_msg->bytes, victim_msg, wordsize);
+    cheat_msg->size = wordsize;
 
     return 0; 
 }
@@ -963,4 +998,37 @@ void dump_word(word_t* w) {
    printk("0x");
    for (int i = 0; i < w->size; i++)
        printk("%X", w->bytes[i]);
+}
+
+//MWG
+int compare_recovery(word_t* recovered_value, word_t* cheat_msg) {
+    if (!recovered_value || !cheat_msg)
+        return -4;
+
+    if (recovered_value->size != cheat_msg->size) {
+        printk("pk: DUE RECOVERY: SIZE MISMATCH\n");
+        return -5;
+    }
+
+    for (int i = 0; i < cheat_msg->size; i++) {
+        if (recovered_value->bytes[i] != cheat_msg->bytes[i]) {
+            printk("pk: DUE RECOVERY: MCE\n");
+            printk("pk: Correct: ");
+            dump_word(cheat_msg);
+            printk("\n");
+            printk("pk: Chosen:  ");
+            dump_word(recovered_value);
+            printk("\n");
+            return 0;
+        }
+    }
+    
+    printk("pk: DUE RECOVERY: CORRECT\n");
+    printk("pk: Correct: ");
+    dump_word(cheat_msg);
+    printk("\n");
+    printk("pk: Chosen:  ");
+    dump_word(recovered_value);
+    printk("\n");
+    return 0;  
 }
