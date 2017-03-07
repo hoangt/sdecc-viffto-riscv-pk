@@ -485,8 +485,8 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     } else if (offset < 0 && offset+load_size > 0 && offset+load_size <= msg_size) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
-        int offset_in_block = offset % msg_size;
+        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
+        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
 
@@ -506,8 +506,8 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     } else if (offset < 0 && offset+load_size > msg_size) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
-        int offset_in_block = offset % msg_size;
+        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
+        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
 
@@ -538,8 +538,8 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     } else if (offset+load_size <= 0) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
-        int offset_in_block = offset % msg_size;
+        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
+        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
 
@@ -560,8 +560,8 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     } else if (offset >= msg_size) {
         int remain = load_size;
         int transferred = 0;
-        int curr_blockpos = blockpos + offset/msg_size + (offset < 0 && offset % msg_size != 0 ? -1 : 0); 
-        int offset_in_block = offset % msg_size;
+        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
+        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
 
