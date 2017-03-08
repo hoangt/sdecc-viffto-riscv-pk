@@ -187,36 +187,48 @@ void handle_memory_due(trapframe_t* tf) {
         default_memory_due_trap_handler(tf, -4, "pk failed to load cheat-recovery message for bookkeeping from HW");
         return;
    }
-   printk("CHEAT MSG: "); //TEMP
-   dump_word(&cheat_msg); //TEMP
-   printk("\n"); //TEMP
+   //printk("CHEAT MSG: "); //TEMP
+   //dump_word(&cheat_msg); //TEMP
+   //printk("\n"); //TEMP
 
    error_code = load_value_from_message(&cheat_msg, &cheat_load_value, &g_cacheline, demand_load_size, demand_load_message_offset); //For bookkeeping only
    if (error_code) {
        default_memory_due_trap_handler(tf, error_code, "pk failed to load cheat value from cheat message");
        return;
    }
-   printk("CHEAT MSG: "); //TEMP
-   dump_word(&cheat_msg); //TEMP
-   printk("\n"); //TEMP
+   //printk("CHEAT MSG: "); //TEMP
+   //dump_word(&cheat_msg); //TEMP
+   //printk("\n"); //TEMP
 
-
+    //printk("demand_dest_reg = %lu, demand_float_regfile = %d, demand_load_size = %lu, demand_load_message_offset = %d\n", demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset); //TEMP
    error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
    
-   printk("CHEAT MSG: "); //TEMP
-   dump_word(&cheat_msg); //TEMP
-   printk("\n"); //TEMP
+   //printk("CHEAT MSG: "); //TEMP
+   //dump_word(&cheat_msg); //TEMP
+   //printk("\n"); //TEMP
 
 
    switch (error_code) {
      case 0: //User handler indicated success, use their specified value
+//       printk("0 CHEAT MSG: "); //TEMP
+//       dump_word(&cheat_msg); //TEMP
+//       printk("\n"); //TEMP
+
          error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);    
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
          
+       //printk("0 CHEAT MSG: "); //TEMP
+       //dump_word(&cheat_msg); //TEMP
+       //printk("\n"); //TEMP
+
          error_code = compare_recovery(&user_recovered_value, &cheat_msg, &recovered_load_value, &cheat_load_value, demand_load_message_offset); //For bookkeeping only
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
+
+       //printk("0 CHEAT MSG: "); //TEMP
+       //dump_word(&cheat_msg); //TEMP
+       //printk("\n"); //TEMP
 
          error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
@@ -225,26 +237,29 @@ void handle_memory_due(trapframe_t* tf) {
              tf->epc += 4;
          return;
      case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
-           printk("CHEAT MSG: "); //TEMP
-           dump_word(&cheat_msg); //TEMP
-           printk("\n"); //TEMP
+           //printk("1CHEAT MSG 1: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
 
          error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
-           printk("CHEAT MSG: "); //TEMP
-           dump_word(&cheat_msg); //TEMP
-           printk("\n"); //TEMP
+           //printk("1CHEAT MSG 2: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
 
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
          
          error_code = compare_recovery(&system_recovered_value, &cheat_msg, &recovered_load_value, &cheat_load_value, demand_load_message_offset); //For bookkeeping only
-           printk("CHEAT MSG: "); //TEMP
-           dump_word(&cheat_msg); //TEMP
-           printk("\n"); //TEMP
+           //printk("1CHEAT MSG 3: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
 
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
          
+           //printk("1CHEAT MSG 4: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
          error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during system-specified recovery");
@@ -252,21 +267,39 @@ void handle_memory_due(trapframe_t* tf) {
              tf->epc += 4;
          return;
      case -1: //User handler wants us to use default safe handler (crash)
+           //printk("-1CHEAT MSG: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
          default_memory_due_trap_handler(tf, error_code, "user program opted to crash safely");
          return;
      case -2: //User handler not registered or DUE was out-of-bounds
+           //printk("-2CHEAT MSG: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
          default_memory_due_trap_handler(tf, error_code, "user DUE handler not registered or DUE out of user-defined bounds");
          return;
      case -3: //User handler problem
+           //printk("-3CHEAT MSG: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
          default_memory_due_trap_handler(tf, error_code, "user handler problem");
          return;
      case -4: //Kernel handler problem
+           //printk("-4CHEAT MSG: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //EMP
          default_memory_due_trap_handler(tf, error_code, "kernel handler problem");
          return;
      default: //Any other problem
+           //printk("defaultCHEAT MSG: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
          default_memory_due_trap_handler(tf, error_code, "unknown handler problem"); 
          return;
    }
+           //printk("wtfCHEAT MSG: "); //TEMP
+           //dump_word(&cheat_msg); //TEMP
+           //printk("\n"); //TEMP
   default_memory_due_trap_handler(tf, -4, "this should not ever have happened"); 
 }
 
@@ -476,28 +509,30 @@ int decode_regfile(long insn) {
 
 //MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, size_t load_size, int offset) {
-    if (!recovered_message || !load_value || !cl)
+    if (!recovered_message || !load_value || !cl || load_size > MAX_WORD_SIZE)
         return -4;
    
     //Init
     load_value->size = 0;
     int msg_size = recovered_message->size; 
+    int load_width = (int) load_size;
     int blockpos = cl->blockpos;
 
     // ----- Four cases to handle ----
 
     //Load value fits entirely inside message -- the expected common case (e.g., we load an aligned int (32-bits) and messages are at least 32-bits
-    if (offset >= 0 && offset+load_size <= msg_size) {
-        memcpy(load_value->bytes, recovered_message->bytes+offset, load_size);
+    if (offset >= 0 && offset+load_width <= msg_size) {
+        memcpy(load_value->bytes, recovered_message->bytes+offset, load_width);
     
     //Load value starts inside message but extends beyond it (e.g., we load an aligned int long (64-bits) but messages are only 32-bits
-    } else if (offset >= 0 && offset < msg_size && offset+load_size > msg_size) {
-        int remain = load_size;
+    } else if (offset >= 0 && offset < msg_size && offset+load_width > msg_size) {
+        int remain = load_width;
         int curr_blockpos = blockpos+1;
         int transferred = 0;
         memcpy(load_value->bytes, recovered_message->bytes+offset, msg_size-offset);
         remain -= msg_size-offset;
-        transferred = load_size - remain;
+        transferred = load_width - remain;
+        //printk("A msg_size = %d, offset = %d, load_width = %lu, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, curr_blockpos, remain, transferred); //TEMP
         while (remain > 0) {
             if (msg_size > remain) {
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, remain);
@@ -506,51 +541,56 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, msg_size);
                 remain -= msg_size;
             }
-            transferred = load_size - remain;
+            transferred = load_width - remain;
             curr_blockpos++;
+            //printk("A msg_size = %d, offset = %d, load_width = %lu, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, curr_blockpos, remain, transferred); //TEMP
         }
 
     //Load value starts before message but ends within it (e.g., we load an aligned int long (64-bits) but messages are only 32-bits
-    } else if (offset < 0 && offset+load_size > 0 && offset+load_size <= msg_size) {
-        int remain = load_size;
+    } else if (offset < 0 && offset+load_width > 0 && offset+load_width <= msg_size) {
+        int remain = load_width;
         int transferred = 0;
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
 
+        //printk("B msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         while (curr_blockpos < blockpos) {
             memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size-offset_in_block);
             curr_blockpos++;
             offset_in_block = 0;
             remain -= msg_size - offset_in_block;
-            transferred = load_size - remain;
+            transferred = load_width - remain;
+            //printk("B msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
         memcpy(load_value->bytes+transferred, recovered_message->bytes, remain);
         remain = 0;
-        transferred = load_size - remain;
+        transferred = load_width - remain;
         curr_blockpos++;
 
     //Load value starts before message but ends after it (e.g., we load an unaligned int long (64-bits) but messages are only 16-bits)
-    } else if (offset < 0 && offset+load_size > msg_size) {
-        int remain = load_size;
+    } else if (offset < 0 && offset+load_width > msg_size) {
+        int remain = load_width;
         int transferred = 0;
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
-
+        //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         while (curr_blockpos < blockpos) {
             memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size - offset_in_block);
             curr_blockpos++;
             offset_in_block = 0;
             remain -= msg_size - offset_in_block;
-            transferred = load_size - remain;
+            transferred = load_width - remain;
+            //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
         memcpy(load_value->bytes+transferred, recovered_message->bytes, msg_size);
         remain -= msg_size;
-        transferred = load_size - remain;
+        transferred = load_width - remain;
         curr_blockpos++;
+        //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         while (remain > 0) {
             if (msg_size > remain) {
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, remain);
@@ -559,19 +599,21 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, msg_size);
                 remain -= msg_size;
             }
-            transferred = load_size - remain;
+            transferred = load_width - remain;
             curr_blockpos++;
+            //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
 
     //Load value starts before message and ends before it (e.g., DUE on a cacheline word that was not the demand load)
-    } else if (offset+load_size <= 0) {
-        int remain = load_size;
+    } else if (offset+load_width <= 0) {
+        int remain = load_width;
         int transferred = 0;
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
 
+            //printk("D msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         while (remain > 0) {
             if (msg_size - offset_in_block > remain) {
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, remain);
@@ -580,17 +622,19 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size - offset_in_block);
                 remain -= msg_size - offset_in_block;
             }
-            transferred = load_size - remain;
+            transferred = load_width - remain;
             curr_blockpos++;
             offset_in_block = 0;
+            //printk("D msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
 
     //Load value starts after message and ends after it (e.g., DUE on a cacheline word that was not the demand load)
     } else if (offset >= msg_size) {
-        int remain = load_size;
+        int remain = load_width;
         int transferred = 0;
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
+        //printk("E msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
             return -4;
 
@@ -602,9 +646,10 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size - offset_in_block);
                 remain -= msg_size - offset_in_block;
             }
-            transferred = load_size - remain;
+            transferred = load_width - remain;
             curr_blockpos++;
             offset_in_block = 0;
+            //printk("E msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
     
     } else { //Something went wrong
@@ -627,25 +672,25 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
                 ; //shut up compiler
                 unsigned char* tmp = (unsigned char*)(load_value->bytes);
                 val = (unsigned long)(*tmp);
-                printk("tmp (1 byte): %x, val (8 bytes): %lx\n", *tmp, val); //TEMP 
+                //printk("tmp (1 byte): %x, val (8 bytes): %lx\n", *tmp, val); //TEMP 
                 break;
             case 2:
                 ; //shut up compiler
                 unsigned short* tmp2 = (unsigned short*)(load_value->bytes);
                 val = (unsigned long)(*tmp2);
-                printk("tmp2 (2 byte): %x, val (8 bytes): %lx\n", *tmp2, val); //TEMP 
+                //printk("tmp2 (2 byte): %x, val (8 bytes): %lx\n", *tmp2, val); //TEMP 
                 break;
             case 4:
                 ; //shut up compiler
                 unsigned* tmp3 = (unsigned*)(load_value->bytes);
                 val = (unsigned long)(*tmp3);
-                printk("tmp3 (4 byte): %x, val (8 bytes): %lx\n", *tmp3, val); //TEMP 
+                //printk("tmp3 (4 byte): %x, val (8 bytes): %lx\n", *tmp3, val); //TEMP 
                 break;
             case 8:
                 ; //shut up compiler
                 unsigned long* tmp4 = (unsigned long*)(load_value->bytes);
                 val = *tmp4;
-                printk("tmp4 (8 byte): %lx, val (8 bytes): %lx\n", *tmp4, val); //TEMP 
+                //printk("tmp4 (8 byte): %lx, val (8 bytes): %lx\n", *tmp4, val); //TEMP 
                 break;
             default: 
                 return -4;
