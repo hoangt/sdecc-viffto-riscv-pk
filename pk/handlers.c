@@ -127,18 +127,20 @@ int default_memory_due_trap_handler(trapframe_t* tf, int error_code, const char*
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
+  //TODO FIXME: 3/9/2017, Major corner-case issue: I finally found source of the rare hang bug. It occurs when a memory DUE occurs right when pk holds a lock in frontend_syscall(). In this case, the trap handler re-enters and will eventually find itself hung on its own lock!!!! That was the most horrible bug I have ever had to find.. took 4 solid days. Problem is, how do we fix it? Even die() and panic() use frontend_syscall() to talk to our host. We need to somehow escape the nested locking pattern, it's our only hope if we don't want that sort of hang.
+
   if ((tf->epc < 0x20000 && tf->epc >= 0) || (tf->badvaddr < 0x20000 && tf->badvaddr >= 0)) { //FIXME: hardcoded values
       default_memory_due_trap_handler(tf, -5, "DUE while fetching or loading from kernel address space"); 
       return;
   } 
   
-  if (getDUECandidateMessages(&g_candidates) != 0 || getDUECacheline(&g_cacheline) != 0) {
-      default_memory_due_trap_handler(tf, -5, "kernel handler failed to get DUE candidates and/or cacheline SI"); 
+  if (g_user_memory_due_trap_handler == NULL) {
+      default_memory_due_trap_handler(tf, -5, "no registered DUE handler"); 
       return;
   }
   
-  if (g_user_memory_due_trap_handler == NULL) {
-      default_memory_due_trap_handler(tf, -5, "no registered DUE handler"); 
+  if (getDUECandidateMessages(&g_candidates) != 0 || getDUECacheline(&g_cacheline) != 0) {
+      default_memory_due_trap_handler(tf, -5, "kernel handler failed to get DUE candidates and/or cacheline SI"); 
       return;
   }
    
@@ -171,6 +173,7 @@ void handle_memory_due(trapframe_t* tf) {
        demand_vaddr = tf->epc;
    } else
       default_memory_due_trap_handler(tf, -5, "pk could not determine whether victim was data or inst memory");
+
    
    int demand_load_message_offset = (int)(demand_vaddr - badvaddr); //Positive offset: DUE came before demand load
 
@@ -199,10 +202,10 @@ void handle_memory_due(trapframe_t* tf) {
        default_memory_due_trap_handler(tf, error_code, "pk failed to load cheat value from cheat message");
        return;
    }
+  
 
    error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
    
-
    switch (error_code) {
      case 0: //User handler indicated success, use their specified value
          error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);    
