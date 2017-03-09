@@ -467,139 +467,32 @@ int decode_regfile(long insn) {
 
 //MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, size_t load_size, int offset) {
-    if (!recovered_message || !load_value || !cl || load_size > MAX_WORD_SIZE)
+    if (!recovered_message || !load_value || !cl)
         return -5;
    
     //Init
     load_value->size = 0;
-    int msg_size = recovered_message->size; 
+    int msg_size = (int) recovered_message->size; 
     int load_width = (int) load_size;
-    int blockpos = cl->blockpos;
+    int blockpos = (int) cl->blockpos;
+    int clsize = (int) cl->size;
+    int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
+    int remain = load_width;
+    int transferred = 0;
+    int curr_blockpos = blockpos + offset/msg_size + ((offset < 0 && offset_in_block != 0) ? -1 : 0); 
 
-    // ----- Four cases to handle ----
-
-    //Load value fits entirely inside message -- the expected common case (e.g., we load an aligned int (32-bits) and messages are at least 32-bits
-    if (offset >= 0 && offset+load_width <= msg_size) {
-        memcpy(load_value->bytes, recovered_message->bytes+offset, load_width);
-    
-    //Load value starts inside message but extends beyond it (e.g., we load an aligned int long (64-bits) but messages are only 32-bits
-    } else if (offset >= 0 && offset < msg_size && offset+load_width > msg_size) {
-        int remain = load_width;
-        int curr_blockpos = blockpos+1;
-        int transferred = 0;
-        memcpy(load_value->bytes, recovered_message->bytes+offset, msg_size-offset);
-        remain -= msg_size-offset;
-        transferred = load_width - remain;
-        while (remain > 0) {
-            if (msg_size > remain) {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, remain);
-                remain = 0;
-            } else {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, msg_size);
-                remain -= msg_size;
-            }
-            transferred = load_width - remain;
-            curr_blockpos++;
-        }
-
-    //Load value starts before message but ends within it (e.g., we load an aligned int long (64-bits) but messages are only 32-bits
-    } else if (offset < 0 && offset+load_width > 0 && offset+load_width <= msg_size) {
-        int remain = load_width;
-        int transferred = 0;
-        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
-        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
-        if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -5;
-
-        while (curr_blockpos < blockpos) {
-            memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size-offset_in_block);
-            curr_blockpos++;
-            offset_in_block = 0;
-            remain -= msg_size - offset_in_block;
-            transferred = load_width - remain;
-        }
-        memcpy(load_value->bytes+transferred, recovered_message->bytes, remain);
-        remain = 0;
-        transferred = load_width - remain;
+    if (msg_size < 0 || msg_size > MAX_WORD_SIZE || load_width < 0 || load_width > MAX_WORD_SIZE || clsize < 0 || clsize > MAX_CACHELINE_WORDS || blockpos < 0 || blockpos > clsize || curr_blockpos < 0 || curr_blockpos > clsize) //Something went wrong
+        return -5;
+        
+    while (remain > 0) {
+        if (curr_blockpos == blockpos)
+            memcpy(load_value->bytes+transferred, recovered_message->bytes+offset_in_block, (msg_size-offset_in_block > remain ? remain : msg_size-offset_in_block));
+        else
+            memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, (msg_size-offset_in_block > remain ? remain : msg_size-offset_in_block));
+        remain -= (msg_size-offset_in_block > remain ? remain : msg_size-offset_in_block);
+        offset_in_block = 0;
+        transferred = load_width-remain;
         curr_blockpos++;
-
-    //Load value starts before message but ends after it (e.g., we load an unaligned int long (64-bits) but messages are only 16-bits)
-    } else if (offset < 0 && offset+load_width > msg_size) {
-        int remain = load_width;
-        int transferred = 0;
-        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
-        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
-        if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -5;
-        while (curr_blockpos < blockpos) {
-            memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size - offset_in_block);
-            curr_blockpos++;
-            offset_in_block = 0;
-            remain -= msg_size - offset_in_block;
-            transferred = load_width - remain;
-        }
-        memcpy(load_value->bytes+transferred, recovered_message->bytes, msg_size);
-        remain -= msg_size;
-        transferred = load_width - remain;
-        curr_blockpos++;
-        while (remain > 0) {
-            if (msg_size > remain) {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, remain);
-                remain = 0;
-            } else {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, msg_size);
-                remain -= msg_size;
-            }
-            transferred = load_width - remain;
-            curr_blockpos++;
-        }
-
-    //Load value starts before message and ends before it (e.g., DUE on a cacheline word that was not the demand load)
-    } else if (offset+load_width <= 0) {
-        int remain = load_width;
-        int transferred = 0;
-        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
-        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
-        if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -5;
-
-        while (remain > 0) {
-            if (msg_size - offset_in_block > remain) {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, remain);
-                remain = 0;
-            } else {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size - offset_in_block);
-                remain -= msg_size - offset_in_block;
-            }
-            transferred = load_width - remain;
-            curr_blockpos++;
-            offset_in_block = 0;
-        }
-
-    //Load value starts after message and ends after it (e.g., DUE on a cacheline word that was not the demand load)
-    } else if (offset >= msg_size) {
-        int remain = load_width;
-        int transferred = 0;
-        int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
-        int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
-        if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -5;
-
-        while (remain > 0) {
-            if (msg_size - offset_in_block > remain) {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, remain);
-                remain = 0;
-            } else {
-                memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size - offset_in_block);
-                remain -= msg_size - offset_in_block;
-            }
-            transferred = load_width - remain;
-            curr_blockpos++;
-            offset_in_block = 0;
-        }
-    
-    } else { //Something went wrong
-        return -5; 
     }
 
     load_value->size = load_size;
