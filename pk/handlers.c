@@ -127,15 +127,21 @@ int default_memory_due_trap_handler(trapframe_t* tf, int error_code, const char*
 
 //MWG
 void handle_memory_due(trapframe_t* tf) {
-    //FIXME: if I compile pk with -O4 instead of -O2 nothing works correctly.
+  if ((tf->epc < 0x20000 && tf->epc >= 0) || (tf->badvaddr < 0x20000 && tf->badvaddr >= 0)) { //FIXME: hardcoded values
+      default_memory_due_trap_handler(tf, -5, "DUE while fetching or loading from kernel address space"); 
+      return;
+  } 
+  
   if (getDUECandidateMessages(&g_candidates) != 0 || getDUECacheline(&g_cacheline) != 0) {
-      default_memory_due_trap_handler(tf, -4, "kernel handler failed to get DUE candidates and/or cacheline SI"); 
+      default_memory_due_trap_handler(tf, -5, "kernel handler failed to get DUE candidates and/or cacheline SI"); 
       return;
   }
+  
   if (g_user_memory_due_trap_handler == NULL) {
-      default_memory_due_trap_handler(tf, -4, "no registered DUE handler"); 
+      default_memory_due_trap_handler(tf, -5, "no registered DUE handler"); 
       return;
   }
+   
    int error_code = 0;
 
    //Init
@@ -164,15 +170,15 @@ void handle_memory_due(trapframe_t* tf) {
    } else if (mem_type == 1) { //inst
        demand_vaddr = tf->epc;
    } else
-      default_memory_due_trap_handler(tf, -4, "pk could not determine whether victim was data or inst memory");
+      default_memory_due_trap_handler(tf, -5, "pk could not determine whether victim was data or inst memory");
    
    int demand_load_message_offset = (int)(demand_vaddr - badvaddr); //Positive offset: DUE came before demand load
 
    if (mem_type == 0 && (demand_dest_reg < 0 || demand_dest_reg > NUM_GPR || demand_dest_reg > NUM_FPR))
-      default_memory_due_trap_handler(tf, -4, "pk decoded bad dest. reg from the insn");
+      default_memory_due_trap_handler(tf, -5, "pk decoded bad dest. reg from the insn");
 
    if (mem_type == 0 && (demand_float_regfile != 0 && demand_float_regfile != 1))
-      default_memory_due_trap_handler(tf, -4, "pk decoded bad int/float type of insn load");
+      default_memory_due_trap_handler(tf, -5, "pk decoded bad int/float type of insn load");
 
    float_trapframe_t float_tf;
    error_code = set_float_trapframe(&float_tf);
@@ -184,51 +190,28 @@ void handle_memory_due(trapframe_t* tf) {
    
    //For book-keeping only!!
    if (getDUECheatMessage(&cheat_msg) != 0) {
-        default_memory_due_trap_handler(tf, -4, "pk failed to load cheat-recovery message for bookkeeping from HW");
+        default_memory_due_trap_handler(tf, -5, "pk failed to load cheat-recovery message for bookkeeping from HW");
         return;
    }
-   //printk("CHEAT MSG: "); //TEMP
-   //dump_word(&cheat_msg); //TEMP
-   //printk("\n"); //TEMP
 
    error_code = load_value_from_message(&cheat_msg, &cheat_load_value, &g_cacheline, demand_load_size, demand_load_message_offset); //For bookkeeping only
    if (error_code) {
        default_memory_due_trap_handler(tf, error_code, "pk failed to load cheat value from cheat message");
        return;
    }
-   //printk("CHEAT MSG: "); //TEMP
-   //dump_word(&cheat_msg); //TEMP
-   //printk("\n"); //TEMP
 
-    //printk("demand_dest_reg = %lu, demand_float_regfile = %d, demand_load_size = %lu, demand_load_message_offset = %d\n", demand_dest_reg, demand_float_regfile, demand_load_size, demand_load_message_offset); //TEMP
    error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
    
-   //printk("CHEAT MSG: "); //TEMP
-   //dump_word(&cheat_msg); //TEMP
-   //printk("\n"); //TEMP
-
 
    switch (error_code) {
      case 0: //User handler indicated success, use their specified value
-//       printk("0 CHEAT MSG: "); //TEMP
-//       dump_word(&cheat_msg); //TEMP
-//       printk("\n"); //TEMP
-
          error_code = load_value_from_message(&user_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);    
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from user message during user-specified recovery");
          
-       //printk("0 CHEAT MSG: "); //TEMP
-       //dump_word(&cheat_msg); //TEMP
-       //printk("\n"); //TEMP
-
          error_code = compare_recovery(&user_recovered_value, &cheat_msg, &recovered_load_value, &cheat_load_value, demand_load_message_offset); //For bookkeeping only
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
-
-       //printk("0 CHEAT MSG: "); //TEMP
-       //dump_word(&cheat_msg); //TEMP
-       //printk("\n"); //TEMP
 
          error_code = writeback_recovered_message(&user_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
@@ -237,29 +220,16 @@ void handle_memory_due(trapframe_t* tf) {
              tf->epc += 4;
          return;
      case 1: //User handler wants us to use the generic recovery policy. Use our specified value. 
-           //printk("1CHEAT MSG 1: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
-
          error_code = load_value_from_message(&system_recovered_value, &recovered_load_value, &g_cacheline, demand_load_size, demand_load_message_offset);
-           //printk("1CHEAT MSG 2: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
 
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to load value from system message during system-specified recovery");
          
          error_code = compare_recovery(&system_recovered_value, &cheat_msg, &recovered_load_value, &cheat_load_value, demand_load_message_offset); //For bookkeeping only
-           //printk("1CHEAT MSG 3: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
 
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
          
-           //printk("1CHEAT MSG 4: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
          error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to write back recovered message during system-specified recovery");
@@ -267,40 +237,25 @@ void handle_memory_due(trapframe_t* tf) {
              tf->epc += 4;
          return;
      case -1: //User handler wants us to use default safe handler (crash)
-           //printk("-1CHEAT MSG: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
          default_memory_due_trap_handler(tf, error_code, "user program opted to crash safely");
          return;
-     case -2: //User handler not registered or DUE was out-of-bounds
-           //printk("-2CHEAT MSG: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
-         default_memory_due_trap_handler(tf, error_code, "user DUE handler not registered or DUE out of user-defined bounds");
+     case -2: //User handler not registered
+         default_memory_due_trap_handler(tf, error_code, "user DUE handler not registered");
          return;
-     case -3: //User handler problem
-           //printk("-3CHEAT MSG: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
+     case -3: //DUE was out-of-bounds for user handler
+         default_memory_due_trap_handler(tf, error_code, "user DUE handler was out of user-defined bounds");
+         return;
+     case -4: //User handler problem
          default_memory_due_trap_handler(tf, error_code, "user handler problem");
          return;
-     case -4: //Kernel handler problem
-           //printk("-4CHEAT MSG: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //EMP
+     case -5: //Kernel handler problem
          default_memory_due_trap_handler(tf, error_code, "kernel handler problem");
          return;
      default: //Any other problem
-           //printk("defaultCHEAT MSG: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
          default_memory_due_trap_handler(tf, error_code, "unknown handler problem"); 
          return;
    }
-           //printk("wtfCHEAT MSG: "); //TEMP
-           //dump_word(&cheat_msg); //TEMP
-           //printk("\n"); //TEMP
-  default_memory_due_trap_handler(tf, -4, "this should not ever have happened"); 
+  default_memory_due_trap_handler(tf, -5, "this should not ever have happened"); 
 }
 
 //MWG
@@ -319,7 +274,7 @@ int getDUECandidateMessages(due_candidates_t* candidates) {
 //MWG
 int getDUECacheline(due_cacheline_t* cacheline) {
     if (!cacheline)
-        return -4;
+        return -5;
 
     size_t wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
     size_t cacheline_size = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_SIZE
@@ -344,7 +299,7 @@ int getDUECacheline(due_cacheline_t* cacheline) {
 //MWG
 int getDUECheatMessage(word_t* cheat_msg) {
     if (!cheat_msg)
-        return -4;
+        return -5;
 
     size_t wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
     size_t victim_msg[wordsize/sizeof(size_t)];
@@ -419,7 +374,7 @@ int copy_word(word_t* dest, word_t* src) {
        return 0;
    }
 
-   return -4;
+   return -5;
 }
 
 //MWG
@@ -433,7 +388,7 @@ int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src) {
         return 0;
     }
     
-    return -4;
+    return -5;
 }
 
 //MWG
@@ -446,7 +401,7 @@ int copy_candidates(due_candidates_t* dest, due_candidates_t* src) {
         return 0;
     }
 
-    return -4;
+    return -5;
 }
 
 //MWG
@@ -463,7 +418,7 @@ int copy_trapframe(trapframe_t* dest, trapframe_t* src) {
        return 0;
    }
 
-   return -4;
+   return -5;
 }
 
 //MWG
@@ -474,7 +429,7 @@ int copy_float_trapframe(float_trapframe_t* dest, float_trapframe_t* src) {
        return 0;
    }
 
-   return -4;
+   return -5;
 }
 
 //MWG
@@ -510,7 +465,7 @@ int decode_regfile(long insn) {
 //MWG
 int load_value_from_message(word_t* recovered_message, word_t* load_value, due_cacheline_t* cl, size_t load_size, int offset) {
     if (!recovered_message || !load_value || !cl || load_size > MAX_WORD_SIZE)
-        return -4;
+        return -5;
    
     //Init
     load_value->size = 0;
@@ -532,7 +487,6 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         memcpy(load_value->bytes, recovered_message->bytes+offset, msg_size-offset);
         remain -= msg_size-offset;
         transferred = load_width - remain;
-        //printk("A msg_size = %d, offset = %d, load_width = %lu, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, curr_blockpos, remain, transferred); //TEMP
         while (remain > 0) {
             if (msg_size > remain) {
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, remain);
@@ -543,7 +497,6 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
             }
             transferred = load_width - remain;
             curr_blockpos++;
-            //printk("A msg_size = %d, offset = %d, load_width = %lu, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, curr_blockpos, remain, transferred); //TEMP
         }
 
     //Load value starts before message but ends within it (e.g., we load an aligned int long (64-bits) but messages are only 32-bits
@@ -553,16 +506,14 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -4;
+            return -5;
 
-        //printk("B msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         while (curr_blockpos < blockpos) {
             memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size-offset_in_block);
             curr_blockpos++;
             offset_in_block = 0;
             remain -= msg_size - offset_in_block;
             transferred = load_width - remain;
-            //printk("B msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
         memcpy(load_value->bytes+transferred, recovered_message->bytes, remain);
         remain = 0;
@@ -576,21 +527,18 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -4;
-        //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
+            return -5;
         while (curr_blockpos < blockpos) {
             memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, msg_size - offset_in_block);
             curr_blockpos++;
             offset_in_block = 0;
             remain -= msg_size - offset_in_block;
             transferred = load_width - remain;
-            //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
         memcpy(load_value->bytes+transferred, recovered_message->bytes, msg_size);
         remain -= msg_size;
         transferred = load_width - remain;
         curr_blockpos++;
-        //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         while (remain > 0) {
             if (msg_size > remain) {
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes, remain);
@@ -601,7 +549,6 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
             }
             transferred = load_width - remain;
             curr_blockpos++;
-            //printk("C msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
 
     //Load value starts before message and ends before it (e.g., DUE on a cacheline word that was not the demand load)
@@ -611,9 +558,8 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -4;
+            return -5;
 
-            //printk("D msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         while (remain > 0) {
             if (msg_size - offset_in_block > remain) {
                 memcpy(load_value->bytes+transferred, cl->words[curr_blockpos].bytes+offset_in_block, remain);
@@ -625,7 +571,6 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
             transferred = load_width - remain;
             curr_blockpos++;
             offset_in_block = 0;
-            //printk("D msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
 
     //Load value starts after message and ends after it (e.g., DUE on a cacheline word that was not the demand load)
@@ -634,9 +579,8 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         int transferred = 0;
         int offset_in_block = (offset < 0 ? -offset : offset) % msg_size;
         int curr_blockpos = blockpos + offset/msg_size + (offset_in_block != 0 ? -1 : 0); 
-        //printk("E msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         if (curr_blockpos < 0 || curr_blockpos > cl->size) //Something went wrong
-            return -4;
+            return -5;
 
         while (remain > 0) {
             if (msg_size - offset_in_block > remain) {
@@ -649,11 +593,10 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
             transferred = load_width - remain;
             curr_blockpos++;
             offset_in_block = 0;
-            //printk("E msg_size = %d, offset = %d, load_width = %lu, offset_in_block = %d, curr_blockpos = %d, remain = %d, transferred = %d\n", msg_size, offset, load_width, offset_in_block, curr_blockpos, remain, transferred); //TEMP
         }
     
     } else { //Something went wrong
-        return -4; 
+        return -5; 
     }
 
     load_value->size = load_size;
@@ -663,7 +606,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
 //MWG
 int writeback_recovered_message(word_t* recovered_message, word_t* load_value, trapframe_t* tf, int mem_type, size_t rd, int float_regfile) {
     if (!recovered_message || !load_value || !tf || (mem_type == 0 && (rd < 0 || rd >= NUM_GPR || rd >= NUM_FPR || float_regfile < 0 || float_regfile > 1)))
-        return -4;
+        return -5;
  
     if (mem_type == 0) { //data-only: write to changes to register file/trapframe. inst should only writeback to memory
         unsigned long val;
@@ -672,34 +615,30 @@ int writeback_recovered_message(word_t* recovered_message, word_t* load_value, t
                 ; //shut up compiler
                 unsigned char* tmp = (unsigned char*)(load_value->bytes);
                 val = (unsigned long)(*tmp);
-                //printk("tmp (1 byte): %x, val (8 bytes): %lx\n", *tmp, val); //TEMP 
                 break;
             case 2:
                 ; //shut up compiler
                 unsigned short* tmp2 = (unsigned short*)(load_value->bytes);
                 val = (unsigned long)(*tmp2);
-                //printk("tmp2 (2 byte): %x, val (8 bytes): %lx\n", *tmp2, val); //TEMP 
                 break;
             case 4:
                 ; //shut up compiler
                 unsigned* tmp3 = (unsigned*)(load_value->bytes);
                 val = (unsigned long)(*tmp3);
-                //printk("tmp3 (4 byte): %x, val (8 bytes): %lx\n", *tmp3, val); //TEMP 
                 break;
             case 8:
                 ; //shut up compiler
                 unsigned long* tmp4 = (unsigned long*)(load_value->bytes);
                 val = *tmp4;
-                //printk("tmp4 (8 byte): %lx, val (8 bytes): %lx\n", *tmp4, val); //TEMP 
                 break;
             default: 
-                return -4;
+                return -5;
         }
 
         if (float_regfile) {
             //Floating-point registers are not part of the trapframe, so I suppose we should just write the register directly.
             if (set_float_register(rd, val)) {
-                return -4;
+                return -5;
             }
         } else {
             tf->gpr[rd] = val; //Write load value to trapframe
@@ -875,13 +814,13 @@ int set_float_register(size_t frd, unsigned long raw_value) {
                          : "r" (raw_value));
             return 0;
         default: //Bad register
-            return -4;
+            return -5;
     }
 }
 
 int get_float_register(size_t frd, unsigned long* raw_value) {
     if (!raw_value)
-        return -4;
+        return -5;
 
     unsigned long tmp; 
     switch (frd) {
@@ -1046,7 +985,7 @@ int get_float_register(size_t frd, unsigned long* raw_value) {
                          :);
             break;
         default: //Bad register
-            return -4;
+            return -5;
     }
 
     *raw_value = tmp;
@@ -1056,12 +995,12 @@ int get_float_register(size_t frd, unsigned long* raw_value) {
 //MWG
 int set_float_trapframe(float_trapframe_t* float_tf) {
     if (!float_tf)
-        return -4;
+        return -5;
 
     unsigned long raw_value;
     for (size_t i = 0; i < NUM_FPR; i++) {
         if (get_float_register(i, &raw_value))
-            return -4;
+            return -5;
         float_tf->fpr[i] = raw_value;
     }
 
@@ -1078,10 +1017,10 @@ void dump_word(word_t* w) {
 //MWG
 int compare_recovery(word_t* recovered_value, word_t* cheat_msg, word_t* recovered_load_value, word_t* cheat_load_value, int demand_load_message_offset) {
     if (!recovered_value || !cheat_msg || !recovered_load_value || !cheat_load_value)
-        return -4;
+        return -5;
 
     if (recovered_value->size != cheat_msg->size || recovered_load_value->size != cheat_load_value->size || recovered_value->size > MAX_WORD_SIZE || recovered_load_value->size > MAX_WORD_SIZE)
-        return -4;
+        return -5;
 
     int correct = 1;
     int mismatch = 0;
@@ -1115,7 +1054,7 @@ int compare_recovery(word_t* recovered_value, word_t* cheat_msg, word_t* recover
             retval = 0;
         } else {
             printk("pk: DUE RECOVERY: MISMATCH BUG\n");
-            retval = -4;
+            retval = -5;
         }
     } else {
         if (overlap && mismatch) {
@@ -1123,7 +1062,7 @@ int compare_recovery(word_t* recovered_value, word_t* cheat_msg, word_t* recover
             retval = 0;
         } else if (!overlap && mismatch) {
             printk("pk: DUE RECOVERY: MISMATCH BUG\n");
-            retval = -4;
+            retval = -5;
         } else {
             printk("pk: DUE RECOVERY: MCE\n"); //FIXME: partial overlap case, can be either MCE or MISMATCH BUG here.
             retval = 0;
