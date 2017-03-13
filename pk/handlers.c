@@ -188,7 +188,7 @@ void handle_memory_due(trapframe_t* tf) {
    if (error_code)
       default_memory_due_trap_handler(tf, error_code, "pk failed to set float trapframe");
   
-   do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
+   int system_suggested_to_crash = do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
    copy_word(&user_recovered_value, &system_recovered_value);
    
    //For book-keeping only!!
@@ -232,6 +232,9 @@ void handle_memory_due(trapframe_t* tf) {
 
          if (error_code)
              default_memory_due_trap_handler(tf, error_code, "pk failed to compare recovered value with cheat value for bookkeeping");
+
+         if (system_suggested_to_crash == -1)
+             default_memory_due_trap_handler(tf, -1, "system-defined recovery policy suggested to panic");
          
          error_code = writeback_recovered_message(&system_recovered_value, &recovered_load_value, tf, mem_type, demand_dest_reg, demand_float_regfile);
          if (error_code)
@@ -340,7 +343,7 @@ void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidate
 }
 
 //MWG
-void parse_sdecc_recovery_output(const char* script_stdout, word_t* w) {
+int parse_sdecc_recovery_output(const char* script_stdout, word_t* w) {
       int k = 0;
       size_t wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE, FIXME
       // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
@@ -352,18 +355,24 @@ void parse_sdecc_recovery_output(const char* script_stdout, word_t* w) {
               }
           }
           k++; //Skip newline
-      } while(script_stdout[k] != '\0' && k < 8*wordsize);
+      } while(script_stdout[k] != '\0' && k < 8*wordsize && script_stdout[k] != ' ');
       w->size = wordsize;
+
+      //Check for SUGGEST_TO_CRASH
+      if (script_stdout[k] == ' ' && strcmp(script_stdout+k+1, "SUGGEST_TO_CRASH") == 0)
+          return -1;
+      else
+          return 0;
 }
 
 //MWG
-void do_system_recovery(word_t* w) {
+int do_system_recovery(word_t* w) {
     //Magical Spike hook to recover, so we don't have to re-implement in C
     asm volatile("custom3 0,%0,%1,0;"
                  : 
                  : "r" (&g_recovery_cstring), "r" (&g_candidates_cstring));
 
-    parse_sdecc_recovery_output(g_recovery_cstring, w);
+    return parse_sdecc_recovery_output(g_recovery_cstring, w);
 }
 
 

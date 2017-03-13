@@ -112,10 +112,10 @@ void sys_register_user_memory_due_trap_handler(user_due_trap_handler fptr); //MW
 
 int getDUECandidateMessages(due_candidates_t* candidates); //MWG
 void parse_sdecc_candidate_output(char* script_stdout, size_t len, due_candidates_t* candidates); //MWG
-void parse_sdecc_data_recovery_output(const char* script_stdout, word_t* w); //MWG
+int parse_sdecc_recovery_output(const char* script_stdout, word_t* w); //MWG
 int getDUECacheline(due_cacheline_t* cacheline); //MWG
 int getDUECheatMessage(word_t* cheat_msg); //MWG
-void do_system_recovery(word_t* w); //MWG
+int do_system_recovery(word_t* w); //MWG
 int copy_word(word_t* dest, word_t* src); //MWG
 int copy_cacheline(due_cacheline_t* dest, due_cacheline_t* src); //MWG
 int copy_candidates(due_candidates_t* dest, due_candidates_t* src); //MWG
