@@ -347,19 +347,16 @@ int parse_sdecc_recovery_output(const char* script_stdout, word_t* w) {
       int k = 0;
       size_t wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE, FIXME
       // Output is expected to be simply a bunch of rows, each with k=8*wordsize binary messages, e.g. '001010100101001...001010'
-      do {
-          for (size_t i = 0; i < wordsize; i++) {
-              w->bytes[i] = 0;
-              for (size_t j = 0; j < 8; j++) {
-                  w->bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
-              }
+      for (size_t i = 0; i < wordsize; i++) {
+          w->bytes[i] = 0;
+          for (size_t j = 0; j < 8; j++) {
+              w->bytes[i] |= (script_stdout[k++] == '1' ? (1 << (8-j-1)) : 0);
           }
-          k++; //Skip newline
-      } while(script_stdout[k] != '\0' && k < 8*wordsize && script_stdout[k] != ' ');
+      }
       w->size = wordsize;
 
       //Check for SUGGEST_TO_CRASH
-      if (script_stdout[k] == ' ' && strcmp(script_stdout+k+1, "SUGGEST_TO_CRASH") == 0)
+      if (strcmp(script_stdout+k, " SUGGEST_TO_CRASH\n") == 0)
           return -1;
       else
           return 0;
