@@ -285,9 +285,10 @@ int getDUECacheline(due_cacheline_t* cacheline) {
     size_t wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
     size_t cacheline_size = read_csr(0x6); //CSR_PENALTY_BOX_CACHELINE_SIZE
     size_t blockpos = read_csr(0x7); //CSR_PENALTY_BOX_CACHELINE_BLKPOS
-    size_t cl[cacheline_size/sizeof(size_t)];
+    size_t num_reads = (cacheline_size % sizeof(size_t) == 0 ? cacheline_size/sizeof(size_t) : cacheline_size/sizeof(size_t)+1);
+    size_t cl[num_reads];
 
-    for (size_t i = 0; i < cacheline_size/sizeof(size_t); i++)
+    for (size_t i = 0; i < num_reads; i++)
         cl[i] = read_csr(0x8); //CSR_PENALTY_BOX_CACHELINE_WORD. Hardware will give us a different 64-bit chunk every iteration. If we over-read, then something bad may happen in HW.
 
     size_t words_per_block = cacheline_size / wordsize;
@@ -308,9 +309,10 @@ int getDUECheatMessage(word_t* cheat_msg) {
         return -5;
 
     size_t wordsize = read_csr(0x5); //CSR_PENALTY_BOX_MSG_SIZE
-    size_t victim_msg[wordsize/sizeof(size_t)];
+    size_t num_reads = (wordsize % sizeof(size_t) == 0 ? wordsize/sizeof(size_t) : wordsize/sizeof(size_t)+1);
+    size_t victim_msg[num_reads];
 
-    for (size_t i = 0; i < wordsize/sizeof(size_t); i++)
+    for (size_t i = 0; i < num_reads; i++)
         victim_msg[i] = read_csr(0xb); //CSR_PENALTY_BOX_CHEAT_MSG. Hardware will give us a different 64-bit chunk every iteration. FIXME: If we over-read, then something bad may happen in HW.
 
     memcpy(cheat_msg->bytes, victim_msg, wordsize);
