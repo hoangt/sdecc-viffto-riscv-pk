@@ -492,6 +492,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
     if (msg_size < 0 || msg_size > MAX_WORD_SIZE || load_width < 0 || load_width > MAX_WORD_SIZE || clsize < 0 || clsize > MAX_CACHELINE_WORDS || blockpos < 0 || blockpos > clsize || curr_blockpos < 0 || curr_blockpos > clsize) //Something went wrong
         return -5;
         
+    //printk("load_width == %d, msg_size == %d, blockpos == %d, clsize == %d, offset_in_block == %d, remain == %d, transferred == %d, curr_blockpos == %d\n", load_width, msg_size, blockpos, clsize, offset_in_block, remain, transferred, curr_blockpos); //TEMP
     while (remain > 0) {
         if (curr_blockpos == blockpos)
             memcpy(load_value->bytes+transferred, recovered_message->bytes+offset_in_block, (msg_size-offset_in_block > remain ? remain : msg_size-offset_in_block));
@@ -501,6 +502,7 @@ int load_value_from_message(word_t* recovered_message, word_t* load_value, due_c
         offset_in_block = 0;
         transferred = load_width-remain;
         curr_blockpos++;
+        //printk("load_width == %d, msg_size == %d, blockpos == %d, clsize == %d, offset_in_block == %d, remain == %d, transferred == %d, curr_blockpos == %d\n", load_width, msg_size, blockpos, clsize, offset_in_block, remain, transferred, curr_blockpos); //TEMP
     }
 
     load_value->size = load_size;

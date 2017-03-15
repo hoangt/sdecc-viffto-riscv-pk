@@ -88,7 +88,7 @@ void boot_other_hart();
 
 //MWG
 typedef struct {
-    char bytes[MAX_WORD_SIZE];
+    unsigned char bytes[MAX_WORD_SIZE];
     size_t size;
 } word_t;
 
