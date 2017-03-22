@@ -187,9 +187,6 @@ void handle_memory_due(trapframe_t* tf) {
    error_code = set_float_trapframe(&float_tf);
    if (error_code)
       default_memory_due_trap_handler(tf, error_code, "pk failed to set float trapframe");
-  
-   int system_suggested_to_crash = do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
-   copy_word(&user_recovered_value, &system_recovered_value);
    
    //For book-keeping only!!
    if (getDUECheatMessage(&cheat_msg) != 0) {
@@ -202,9 +199,19 @@ void handle_memory_due(trapframe_t* tf) {
        default_memory_due_trap_handler(tf, error_code, "pk failed to load cheat value from cheat message");
        return;
    }
-  
 
-   error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
+   int system_suggested_to_crash = 0;
+   if (g_candidates.size > 1)
+       system_suggested_to_crash = do_system_recovery(&system_recovered_value); //"System" will figure out inst or data
+   else
+       copy_word(&system_recovered_value, g_candidates.candidate_messages);
+       
+   copy_word(&user_recovered_value, &system_recovered_value);
+ 
+   if (g_candidates.size > 1)
+       error_code = g_user_memory_due_trap_handler(tf, &float_tf, demand_vaddr, &g_candidates, &g_cacheline, &user_recovered_value, demand_load_size, demand_dest_reg, demand_float_regfile, demand_load_message_offset, mem_type); //May clobber user_recovered_value
+   else
+       error_code = 1;
    
    switch (error_code) {
      case 0: //User handler indicated success, use their specified value
