@@ -364,10 +364,11 @@ int parse_sdecc_recovery_output(const char* script_stdout, word_t* w) {
       }
       w->size = wordsize;
 
+      //ESWEEK'17 ONLY: ignore crash TEMP FIXME
       //Check for SUGGEST_TO_CRASH
-      if (strcmp(script_stdout+k, " SUGGEST_TO_CRASH\n") == 0)
-          return -1;
-      else
+      //if (strcmp(script_stdout+k, " SUGGEST_TO_CRASH\n") == 0)
+      //    return -1;
+      //else
           return 0;
 }
 
