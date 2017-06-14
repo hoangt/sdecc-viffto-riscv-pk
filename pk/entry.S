@@ -1,4 +1,9 @@
 // See LICENSE for license details.
+/*
+ * Heavy modifications by:
+ * Author: Mark Gottscho
+ * Email: mgottscho@ucla.edu
+ */
 
 #include "encoding.h"
 #include "bits.h"

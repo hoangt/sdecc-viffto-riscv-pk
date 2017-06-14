@@ -1,3 +1,9 @@
+/*
+ * Heavy modifications by:
+ * Author: Mark Gottscho
+ * Email: mgottscho@ucla.edu
+ */
+
 #include "pk.h"
 #include "file.h"
 #include "frontend.h"

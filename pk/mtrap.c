@@ -1,3 +1,9 @@
+/*
+ * Heavy modifications by:
+ * Author: Mark Gottscho
+ * Email: mgottscho@ucla.edu
+ */
+
 #include "mtrap.h"
 #include "frontend.h"
 #include "mcall.h"

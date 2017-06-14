@@ -1,4 +1,9 @@
 // See LICENSE for license details.
+/*
+ * Heavy modifications by:
+ * Author: Mark Gottscho
+ * Email: mgottscho@ucla.edu
+ */
 
 #ifndef RISCV_CSR_ENCODING_H
 #define RISCV_CSR_ENCODING_H
